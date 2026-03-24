@@ -52,22 +52,121 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
             }
 
             Rule::class_def => {
-                // For now, treat classes like structs
-                let mut inner = pair.into_inner();
-                let name = inner.find(|p| p.as_rule() == Rule::ident).unwrap().as_str();
+                // Treat classes as struct + class methods compilation
+                let class_pairs: Vec<_> = pair.into_inner().collect();
+                let name = class_pairs.iter().find(|p| p.as_rule() == Rule::ident).unwrap().as_str();
                 let mut fields = Vec::new();
 
-                for prop in inner.filter(|p| p.as_rule() == Rule::class_property) {
-                    let p_inner = prop.into_inner();
-                    // Skip public/private keywords
-                    let tokens: Vec<_> = p_inner.collect();
-                    if tokens.len() >= 2 {
-                        let f_type = FluxType::from_str(tokens[tokens.len()-2].as_str());
-                        let f_name = tokens[tokens.len()-1].as_str().to_string();
-                        fields.push((f_name, f_type));
+                for prop in class_pairs.iter().filter(|p| p.as_rule() == Rule::class_property) {
+                    let mut p_inner = prop.clone().into_inner();
+                    let mut f_type_str: Option<&str> = None;
+                    let mut f_name: Option<String> = None;
+                    let mut init_expr: Option<pest::iterators::Pair<Rule>> = None;
+
+                    while let Some(part) = p_inner.next() {
+                        match part.as_rule() {
+                            Rule::type_ident => {
+                                f_type_str = Some(part.as_str());
+                            }
+                            Rule::ident => {
+                                let s = part.as_str();
+                                if s == "public" || s == "private" || s == "async" {
+                                    continue;
+                                }
+                                if f_type_str.is_none() {
+                                    f_type_str = Some(s);
+                                } else if f_name.is_none() {
+                                    f_name = Some(s.to_string());
+                                }
+                            }
+                            Rule::expr => {
+                                init_expr = Some(part.clone());
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    if let (Some(f_type), Some(f_name)) = (f_type_str, f_name.clone()) {
+                        let fft = FluxType::from_str(f_type);
+                        fields.push((f_name.clone(), fft));
+
+                        if let Some(expr_pair) = init_expr {
+                            if let Ok(val) = eval_expr(expr_pair, &symbols.variables) {
+                                symbols.variables.insert(f_name.clone(), val);
+                            }
+                        }
                     }
                 }
+
                 symbols.structs.insert(name.to_string(), fields);
+                for method in class_pairs.iter().filter(|p| p.as_rule() == Rule::class_method) {
+                    let mut method_inner = method.clone().into_inner();
+                    let mut ret_type_str = "void";
+                    let mut method_name = "unknown";
+                    let mut params = Vec::new();
+                    let mut body_block: Option<pest::iterators::Pair<Rule>> = None;
+
+                    while let Some(item) = method_inner.next() {
+                        match item.as_rule() {
+                            Rule::type_ident => {
+                                ret_type_str = item.as_str();
+                            }
+                            Rule::ident => {
+                                let s = item.as_str();
+                                if s == "public" || s == "private" || s == "async" {
+                                    continue;
+                                }
+                                if method_name == "unknown" {
+                                    method_name = s;
+                                    continue;
+                                }
+                            }
+                            Rule::param_list => {
+                                for p in item.into_inner() {
+                                    let mut p_inner = p.into_inner();
+                                    if let Some(first_elem) = p_inner.next() {
+                                        let p_type = FluxType::from_str(first_elem.as_str());
+                                        if let Some(second_elem) = p_inner.next() {
+                                            let p_name = second_elem.as_str().to_string();
+                                            params.push((p_name, p_type));
+                                        }
+                                    }
+                                }
+                            }
+                            Rule::function_body | Rule::block => {
+                                if item.as_rule() == Rule::block {
+                                    body_block = Some(item);
+                                } else if let Some(fb) = item.into_inner().next() {
+                                    if fb.as_rule() == Rule::block {
+                                        body_block = Some(fb);
+                                    } else {
+                                        // TODO: support single statement microsyntax
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    symbols.functions.insert(method_name.to_string(), FunctionSignature {
+                        return_type: FluxType::from_str(ret_type_str),
+                        parameters: params.clone(),
+                    });
+
+                    if let Some(block) = body_block {
+                        text_section.push_str(&format!("global {}\n{}:\n", method_name, method_name));
+                        text_section.push_str("    push rbp\n    mov rbp, rsp\n");
+                        compile_block(
+                            block,
+                            content,
+                            &source_lines,
+                            &mut symbols,
+                            &mut data_section,
+                            &mut text_section,
+                            &mut unique_id,
+                        )?;
+                    }
+                }
             }
 
             Rule::function => {
@@ -110,10 +209,6 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
                     parameters: params.clone(),
                 });
 
-                // Track stack offsets for local variables
-                let mut stack_offset: i32 = 0;
-                let mut var_offsets: HashMap<String, i32> = HashMap::new();
-
                 if let Some(block) = inner.find(|p| p.as_rule() == Rule::block) {
                     // --- C. Commentaire source pour la signature ---
                     if let Some(line) = source_lines.get(line_start.saturating_sub(1)) {
@@ -123,125 +218,27 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
                     text_section.push_str(&format!("global {}\n{}:\n", func_name, func_name));
                     text_section.push_str("    push rbp\n    mov rbp, rsp\n");
 
-                    for statement in block.into_inner() {
-                        // --- C. Insert source line as comment ---
-                        let stmt_span = statement.as_span();
-                        let stmt_line = content[..stmt_span.start()].lines().count();
-                        if let Some(src_line) = source_lines.get(stmt_line.saturating_sub(1)) {
-                            text_section.push_str(&format!("\n    ; --- {} ---\n", src_line.trim()));
-                        }
-
-                        match statement.as_rule() {
-                            Rule::variable_decl => {
-                                let mut decl_inner = statement.into_inner();
-                                let _var_type = decl_inner.next().unwrap().as_str();
-                                let var_name = decl_inner.next().unwrap().as_str().to_string();
-
-                                stack_offset += 8;
-                                var_offsets.insert(var_name.clone(), stack_offset);
-                                text_section.push_str(&format!("    sub rsp, 8\n"));
-
-                                if let Some(expr_pair) = decl_inner.find(|p| p.as_rule() == Rule::expr) {
-                                    match eval_expr(expr_pair, &symbols.variables) {
-                                        Ok(val) => {
-                                            match &val {
-                                                FluxValue::Integer(n) => {
-                                                    text_section.push_str(&format!(
-                                                        "    mov qword [rbp-{}], {}\n",
-                                                        stack_offset, n
-                                                    ));
-                                                }
-                                                FluxValue::Str(_) => {
-                                                    let label = format!("str_{}", unique_id);
-                                                    unique_id += 1;
-                                                    data_section.push_str(&format!(
-                                                        "{}: db \"{}\", 0\n",
-                                                        label, val
-                                                    ));
-                                                    text_section.push_str(&format!(
-                                                        "    lea rax, [rel {}]\n    mov [rbp-{}], rax\n",
-                                                        label, stack_offset
-                                                    ));
-                                                }
-                                            }
-                                            symbols.variables.insert(var_name, val);
-                                        }
-                                        Err(e) => {
-                                            text_section.push_str(&format!(
-                                                "    ; ERROR evaluating expr: {}\n", e
-                                            ));
-                                        }
-                                    }
-                                }
-                            }
-
-                            Rule::function_call => {
-                                let mut call_inner = statement.into_inner();
-                                let callee = call_inner.next().unwrap().as_str();
-
-                                // TODO: Implement proper print functions when kernel logging is available
-                                if callee == "print" {
-                                    // For now, ignore print calls as klog is not yet available
-                                    // Generate a NOP (no operation) instead
-                                    text_section.push_str("    nop  ; print() stub\n");
-                                }
-                            }
-
-                            Rule::assignment_stmt => {
-                                let mut assign_inner = statement.into_inner();
-                                let var_name = assign_inner.next().unwrap().as_str().to_string();
-                                let _assign_op = assign_inner.next().unwrap().as_str(); // "=", "+=", "-="
-                                let expr_pair = assign_inner.next().unwrap();
-
-                                if let Ok(val) = eval_expr(expr_pair, &symbols.variables) {
-                                    if let Some(&offset) = var_offsets.get(&var_name) {
-                                        match val {
-                                            FluxValue::Integer(n) => {
-                                                text_section.push_str(&format!(
-                                                    "    mov qword [rbp-{}], {}\n",
-                                                    offset, n
-                                                ));
-                                            }
-                                            FluxValue::Str(_) => {
-                                                let label = format!("str_{}", unique_id);
-                                                unique_id += 1;
-                                                data_section.push_str(&format!(
-                                                    "{}: db \"{}\", 0\n",
-                                                    label, val
-                                                ));
-                                                text_section.push_str(&format!(
-                                                    "    lea rax, [rel {}]\n    mov [rbp-{}], rax\n",
-                                                    label, offset
-                                                ));
-                                            }
-                                        }
-                                        symbols.variables.insert(var_name, val);
-                                    }
-                                }
-                            }
-
-                            Rule::increment_stmt => {
-                                let mut inc_inner = statement.into_inner();
-                                let var_name = inc_inner.next().unwrap().as_str().to_string();
-                                let _inc_op = inc_inner.next().unwrap().as_str(); // "++" or "--"
-
-                                if let Some(&offset) = var_offsets.get(&var_name) {
-                                    // For simplicity, increment by 1 in memory
-                                    text_section.push_str(&format!(
-                                        "    inc qword [rbp-{}]\n",
-                                        offset
-                                    ));
-                                }
-                            }
-
-                            _ => {}
-                        }
-                    }
-
-                    text_section.push_str("\n    mov rsp, rbp\n    pop rbp\n    ret\n\n");
+                    compile_block(
+                        block,
+                        content,
+                        &source_lines,
+                        &mut symbols,
+                        &mut data_section,
+                        &mut text_section,
+                        &mut unique_id,
+                    )?;
                 }
             }
             _ => {}
+        }
+    }
+
+    // Ensure there is a main symbol for runtime entrypoint
+    if !symbols.functions.contains_key("main") {
+        if symbols.functions.contains_key("Main") {
+            text_section.push_str("global main\nmain:\n    call Main\n    ret\n\n");
+        } else {
+            text_section.push_str("global main\nmain:\n    mov rax, 0\n    ret\n\n");
         }
     }
 
@@ -262,6 +259,155 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
     asm.push_str(&text_section);
 
     Ok(asm)
+}
+
+fn compile_block(
+    block: pest::iterators::Pair<Rule>,
+    content: &str,
+    source_lines: &[&str],
+    symbols: &mut SymbolTable,
+    data_section: &mut String,
+    text_section: &mut String,
+    unique_id: &mut usize,
+) -> Result<()> {
+    let mut stack_offset: i32 = 0;
+    let mut var_offsets: HashMap<String, i32> = HashMap::new();
+
+    for statement in block.into_inner() {
+        let stmt_span = statement.as_span();
+        let stmt_line = content[..stmt_span.start()].lines().count();
+        if let Some(src_line) = source_lines.get(stmt_line.saturating_sub(1)) {
+            text_section.push_str(&format!("\n    ; --- {} ---\n", src_line.trim()));
+        }
+
+        match statement.as_rule() {
+            Rule::variable_decl => {
+                let mut decl_inner = statement.into_inner();
+                let _var_type = decl_inner.next().unwrap().as_str();
+                let var_name = decl_inner.next().unwrap().as_str().to_string();
+
+                stack_offset += 8;
+                var_offsets.insert(var_name.clone(), stack_offset);
+                text_section.push_str(&format!("    sub rsp, 8\n"));
+
+                if let Some(expr_pair) = decl_inner.find(|p| p.as_rule() == Rule::expr) {
+                    match eval_expr(expr_pair, &symbols.variables) {
+                        Ok(val) => {
+                            match &val {
+                                FluxValue::Integer(n) => {
+                                    text_section.push_str(&format!(
+                                        "    mov qword [rbp-{}], {}\n",
+                                        stack_offset, n
+                                    ));
+                                }
+                                FluxValue::Str(_) => {
+                                    let label = format!("str_{}", *unique_id);
+                                    *unique_id += 1;
+                                    data_section.push_str(&format!(
+                                        "{}: db \"{}\", 0\n",
+                                        label, val
+                                    ));
+                                    text_section.push_str(&format!(
+                                        "    lea rax, [rel {}]\n    mov [rbp-{}], rax\n",
+                                        label, stack_offset
+                                    ));
+                                }
+                            }
+                            symbols.variables.insert(var_name, val);
+                        }
+                        Err(e) => {
+                            text_section.push_str(&format!(
+                                "    ; ERROR evaluating expr: {}\n", e
+                            ));
+                        }
+                    }
+                }
+            }
+
+            Rule::function_call => {
+                let mut call_inner = statement.into_inner();
+                let callee = call_inner.next().unwrap().as_str();
+
+                if callee == "serial_print" || callee == "print" {
+                    if let Some(arg_pair) = call_inner.next() {
+                        match eval_expr(arg_pair, &symbols.variables) {
+                            Ok(val) => match val {
+                                FluxValue::Str(text) => {
+                                    let label = format!("str_{}", *unique_id);
+                                    *unique_id += 1;
+                                    let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
+                                    data_section.push_str(&format!("{}: db \"{}\", 0\n", label, escaped));
+                                    text_section.push_str(&format!(
+                                        "    lea rdi, [rel {}]\n    call _fsh_print_str\n",
+                                        label
+                                    ));
+                                }
+                                FluxValue::Integer(n) => {
+                                    text_section.push_str(&format!(
+                                        "    mov rdi, {}\n    call _fsh_print_int\n",
+                                        n
+                                    ));
+                                }
+                            },
+                            Err(e) => {
+                                text_section.push_str(&format!("    ; ERROR serial_print arg eval: {}\n", e));
+                            }
+                        }
+                    } else {
+                        text_section.push_str("    ; WARNING serial_print called without argument\n");
+                    }
+                }
+            }
+
+            Rule::assignment_stmt => {
+                let mut assign_inner = statement.into_inner();
+                let var_name = assign_inner.next().unwrap().as_str().to_string();
+                let _assign_op = assign_inner.next().unwrap().as_str();
+                let expr_pair = assign_inner.next().unwrap();
+
+                if let Ok(val) = eval_expr(expr_pair, &symbols.variables) {
+                    if let Some(&offset) = var_offsets.get(&var_name) {
+                        match val {
+                            FluxValue::Integer(n) => {
+                                text_section.push_str(&format!(
+                                    "    mov qword [rbp-{}], {}\n",
+                                    offset, n
+                                ));
+                            }
+                            FluxValue::Str(_) => {
+                                let label = format!("str_{}", *unique_id);
+                                *unique_id += 1;
+                                data_section.push_str(&format!("{}: db \"{}\", 0\n", label, val));
+                                text_section.push_str(&format!(
+                                    "    lea rax, [rel {}]\n    mov [rbp-{}], rax\n",
+                                    label, offset
+                                ));
+                            }
+                        }
+                        symbols.variables.insert(var_name, val);
+                    }
+                }
+            }
+
+            Rule::increment_stmt => {
+                let mut inc_inner = statement.into_inner();
+                let var_name = inc_inner.next().unwrap().as_str().to_string();
+                let _inc_op = inc_inner.next().unwrap().as_str();
+
+                if let Some(&offset) = var_offsets.get(&var_name) {
+                    text_section.push_str(&format!(
+                        "    inc qword [rbp-{}]\n",
+                        offset
+                    ));
+                }
+            }
+
+            _ => {}
+        }
+    }
+
+    text_section.push_str("\n    mov rsp, rbp\n    pop rbp\n    ret\n\n");
+    Ok(())
 }
 
 // --- 2. SYSTÈME DE TYPES ---
@@ -346,7 +492,28 @@ fn eval_expr(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue
                     _ => anyhow::bail!("Unknown operator: {}", op),
                 })
             }
-            _ => anyhow::bail!("Arithmetic on non-integer values"),
+            (FluxValue::Str(l), FluxValue::Str(r)) => {
+                if op == "+" {
+                    FluxValue::Str(format!("{}{}", l, r))
+                } else {
+                    anyhow::bail!("Unsupported operator {} on strings", op)
+                }
+            }
+            (FluxValue::Str(l), FluxValue::Integer(r)) => {
+                if op == "+" {
+                    FluxValue::Str(format!("{}{}", l, r))
+                } else {
+                    anyhow::bail!("Unsupported operator {} between string and integer", op)
+                }
+            }
+            (FluxValue::Integer(l), FluxValue::Str(r)) => {
+                if op == "+" {
+                    FluxValue::Str(format!("{}{}", l, r))
+                } else {
+                    anyhow::bail!("Unsupported operator {} between integer and string", op)
+                }
+            }
+            _ => anyhow::bail!("Arithmetic on non-integer/non-string values"),
         };
     }
 
@@ -408,6 +575,9 @@ enum Commands {
         /// Compile all .fsh files in a directory (e.g., --all os_fs/src)
         #[arg(long)]
         all: Option<PathBuf>,
+        /// Run the generated binary right after linking
+        #[arg(long)]
+        run: bool,
     },
     Version,
 }
@@ -417,7 +587,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Compile { inputs, output, all } => {
+        Commands::Compile { inputs, output, all, run } => {
             // Déterminer les fichiers à compiler
             let mut files_to_compile = inputs.clone();
             
@@ -533,10 +703,36 @@ fn main() -> Result<()> {
                 match ld_status {
                     Ok(status) if status.success() => {
                         println!("✅ Linked binary: {:?}", bin_path);
+                        if run {
+                            let output_run = std::process::Command::new(&bin_path)
+                                .output();
+                            match output_run {
+                                Ok(out) => {
+                                    print!("{}", String::from_utf8_lossy(&out.stdout));
+                                    eprint!("{}", String::from_utf8_lossy(&out.stderr));
+                                }
+                                Err(e) => {
+                                    eprintln!("❌ Failed to execute {}: {}", bin_path.display(), e);
+                                }
+                            }
+                        }
                     }
                     Ok(_) => {
                         // Linker produced warnings but still created output
                         println!("⚠️  Linked with warnings: {:?}", bin_path);
+                        if run {
+                            let output_run = std::process::Command::new(&bin_path)
+                                .output();
+                            match output_run {
+                                Ok(out) => {
+                                    print!("{}", String::from_utf8_lossy(&out.stdout));
+                                    eprint!("{}", String::from_utf8_lossy(&out.stderr));
+                                }
+                                Err(e) => {
+                                    eprintln!("❌ Failed to execute {}: {}", bin_path.display(), e);
+                                }
+                            }
+                        }
                     }
                     Err(e) => {
                         eprintln!("❌ Linker error: {}", e);

@@ -1,8 +1,8 @@
-[package]
-name = "flux_compiler"
+[workspace]
+members = ["fluxc"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
+authors = ["FluxSharp <noreply@example.com>"]
 
-[dependencies]
-pest = "2.8.6"
-pest_derive = "2.8.6"

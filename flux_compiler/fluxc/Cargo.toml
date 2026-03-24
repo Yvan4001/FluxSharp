@@ -1,0 +1,16 @@
+[package]
+name = "fluxc"
+version = "0.1.0"
+authors = ["FluxSharp <noreply@example.com>"]
+edition = "2021"
+
+[dependencies]
+# Parsing
+pest = "2.7"
+pest_derive = "2.7"
+
+# CLI (Pour faire: fluxc compile main.fsh)
+clap = { version = "4.4", features = ["derive"] }
+
+# Gestion d'erreurs propre
+anyhow = "1.0"
