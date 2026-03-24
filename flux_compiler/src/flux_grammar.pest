@@ -98,12 +98,13 @@ class_def = {
 comparison_op = { "<=" | ">=" | "<" | ">" | "==" | "!=" }
 
 // Opérandes pour condition : ident, int_literal, appel de fonction, ou expression entre parenthèses
-operand = { ident ~ ("(" ~ (expr ~ ("," ~ expr)*)? ~ ")" | ("." ~ ident ~ "()")?)? | int_literal | "(" ~ expr ~ ")" }
+operand = { ident ~ ("(" ~ (expr ~ ("," ~ expr)*)? ~ ")" | ("." ~ ident ~ "()")?)? | int_literal | bool_literal | "(" ~ expr ~ ")" }
 
-// Condition avec support des parenthèses, comparaisons et simples opérandes
+// Condition avec support des parenthèses, comparaisons, booléens et simples opérandes
 condition = { 
     "(" ~ condition ~ ")"
     | operand ~ comparison_op ~ operand ~ (logical_op ~ condition)?
+    | operand ~ logical_op ~ condition
     | operand
 }
 
@@ -156,12 +157,12 @@ statement = _{
     | break_stmt
     | continue_stmt
     | await_stmt
-    | increment_stmt
-    | assignment_stmt
-    | array_access
     | const_decl
     | variable_decl
     | array_decl
+    | increment_stmt
+    | assignment_stmt
+    | array_access
     | function_call
 }
 

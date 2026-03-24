@@ -186,6 +186,54 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
                                     text_section.push_str("    nop  ; print() stub\n");
                                 }
                             }
+
+                            Rule::assignment_stmt => {
+                                let mut assign_inner = statement.into_inner();
+                                let var_name = assign_inner.next().unwrap().as_str().to_string();
+                                let _assign_op = assign_inner.next().unwrap().as_str(); // "=", "+=", "-="
+                                let expr_pair = assign_inner.next().unwrap();
+
+                                if let Ok(val) = eval_expr(expr_pair, &symbols.variables) {
+                                    if let Some(&offset) = var_offsets.get(&var_name) {
+                                        match val {
+                                            FluxValue::Integer(n) => {
+                                                text_section.push_str(&format!(
+                                                    "    mov qword [rbp-{}], {}\n",
+                                                    offset, n
+                                                ));
+                                            }
+                                            FluxValue::Str(_) => {
+                                                let label = format!("str_{}", unique_id);
+                                                unique_id += 1;
+                                                data_section.push_str(&format!(
+                                                    "{}: db \"{}\", 0\n",
+                                                    label, val
+                                                ));
+                                                text_section.push_str(&format!(
+                                                    "    lea rax, [rel {}]\n    mov [rbp-{}], rax\n",
+                                                    label, offset
+                                                ));
+                                            }
+                                        }
+                                        symbols.variables.insert(var_name, val);
+                                    }
+                                }
+                            }
+
+                            Rule::increment_stmt => {
+                                let mut inc_inner = statement.into_inner();
+                                let var_name = inc_inner.next().unwrap().as_str().to_string();
+                                let _inc_op = inc_inner.next().unwrap().as_str(); // "++" or "--"
+
+                                if let Some(&offset) = var_offsets.get(&var_name) {
+                                    // For simplicity, increment by 1 in memory
+                                    text_section.push_str(&format!(
+                                        "    inc qword [rbp-{}]\n",
+                                        offset
+                                    ));
+                                }
+                            }
+
                             _ => {}
                         }
                     }
