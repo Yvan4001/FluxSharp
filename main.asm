@@ -3,6 +3,16 @@
 ; fluxc v0.1.0
 ; ============================
 
+extern _fsh_print_str
+extern _fsh_print_int
+extern _fsh_abs
+extern _fsh_max
+extern _fsh_min
+extern _fsh_pow
+extern _fsh_floor
+extern _fsh_ceil
+extern _fsh_sqrt
+
 section .data
 str_0: db "=== Types and Variables ===", 0
 float_1: dd 0x4048f5c3
@@ -24,33 +34,23 @@ str_19: db "Loop", 0
 str_20: db "=== Classes ===", 0
 str_21: db "Calculator done", 0
 str_22: db "=== Function Calls ===", 0
-str_23: db "Functions done", 0
-str_24: db "=== Math Functions ===", 0
-str_25: db "Math done", 0
-str_26: db "=== Strings ===", 0
-str_27: db "FluxSharp", 0
-str_28: db "Hello World", 0
-str_29: db "Hello World", 0
-str_30: db "=== Break/Continue ===", 0
-str_34: db "Loop", 0
-str_37: db "=============================================", 0
-str_38: db "FluxSharp - Complete Language Demonstration", 0
+str_23: db "Hello", 0
+str_24: db "World", 0
+str_25: db "Functions done", 0
+str_26: db "=== Math Functions ===", 0
+str_27: db "Math done", 0
+str_28: db "=== Strings ===", 0
+str_29: db "FluxSharp", 0
+str_30: db "Hello World", 0
+str_31: db "Hello World", 0
+str_32: db "=== Break/Continue ===", 0
+str_36: db "Loop", 0
 str_39: db "=============================================", 0
-str_40: db "", 0
-str_41: db "", 0
-str_42: db "", 0
-str_43: db "", 0
-str_44: db "", 0
-str_45: db "", 0
-str_46: db "", 0
-str_47: db "", 0
-str_48: db "", 0
-str_49: db "", 0
-str_50: db "", 0
-str_51: db "", 0
-str_52: db "=============================================", 0
-str_53: db "All demonstrations complete!", 0
-str_54: db "=============================================", 0
+str_40: db "FluxSharp - Complete Language Demonstration", 0
+str_41: db "=============================================", 0
+str_42: db "=============================================", 0
+str_43: db "All demonstrations complete!", 0
+str_44: db "=============================================", 0
 
 section .text
 ; === Compiled from "/run/media/yvan/E6EAD2EBEAD2B6D1/Projet_Dev/FluxSharp/main.fsh" by fluxc ===
@@ -129,8 +129,6 @@ DemoTypes:
     lea rdi, [rel str_4]
     call _fsh_print_str
 
-    ; --- return; ---
-
     mov rsp, rbp
     pop rbp
     ret
@@ -172,8 +170,6 @@ PrintValue:
     lea rdi, [rel str_5]
     call _fsh_print_str
 
-    ; --- return; ---
-
     mov rsp, rbp
     pop rbp
     ret
@@ -211,29 +207,27 @@ DemoOperators:
 
     ; --- int bitwiseAnd = 5 & 3;   // AND ---
     sub rsp, 8
-    ; ERROR evaluating expr: Unknown operator: &
+    mov qword [rbp-48], 1
 
     ; --- int bitwiseOr = 5 | 3;    // OR ---
     sub rsp, 8
-    ; ERROR evaluating expr: Unknown operator: |
+    mov qword [rbp-56], 7
 
     ; --- int bitwiseXor = 5 ^ 3;   // XOR ---
     sub rsp, 8
-    ; ERROR evaluating expr: Unknown operator: ^
+    mov qword [rbp-64], 6
 
     ; --- int leftShift = 5 << 1;   // Left shift ---
     sub rsp, 8
-    ; ERROR evaluating expr: Unknown operator: <<
+    mov qword [rbp-72], 10
 
     ; --- int rightShift = 10 >> 1; // Right shift ---
     sub rsp, 8
-    ; ERROR evaluating expr: Unknown operator: >>
+    mov qword [rbp-80], 5
 
     ; --- print("Operators done"); ---
     lea rdi, [rel str_7]
     call _fsh_print_str
-
-    ; --- return; ---
 
     mov rsp, rbp
     pop rbp
@@ -264,21 +258,19 @@ DemoArrays:
 
     ; --- int first = numbers[0]; ---
     sub rsp, 8
-    ; ERROR evaluating expr: Undefined variable: 'numbers'
+    mov qword [rbp-8], 0 ; Array access stub: numbers[0]
 
     ; --- int second = numbers[1]; ---
     sub rsp, 8
-    ; ERROR evaluating expr: Undefined variable: 'numbers'
+    mov qword [rbp-16], 0 ; Array access stub: numbers[1]
 
     ; --- int third = numbers[2]; ---
     sub rsp, 8
-    ; ERROR evaluating expr: Undefined variable: 'numbers'
+    mov qword [rbp-24], 0 ; Array access stub: numbers[2]
 
     ; --- print("Arrays initialized"); ---
     lea rdi, [rel str_9]
     call _fsh_print_str
-
-    ; --- return; ---
 
     mov rsp, rbp
     pop rbp
@@ -315,8 +307,6 @@ DemoIfElse:
     call _fsh_print_str
 .if_end_11:
 
-    ; --- return; ---
-
     mov rsp, rbp
     pop rbp
     ret
@@ -344,11 +334,10 @@ DemoForLoop:
     ; --- print("Iteration"); ---
     lea rdi, [rel str_16]
     call _fsh_print_str
+.for_continue_15:
     inc qword [rbp-8]
     jmp .for_start_15
 .for_end_15:
-
-    ; --- return; ---
 
     mov rsp, rbp
     pop rbp
@@ -384,8 +373,6 @@ DemoWhileLoop:
     jmp .while_start_18
 .while_end_18:
 
-    ; --- return; ---
-
     mov rsp, rbp
     pop rbp
     ret
@@ -409,17 +396,15 @@ DemoClasses:
 
     ; --- int sum = calc.Add(5, 3); ---
     sub rsp, 8
-    ; ERROR evaluating expr: Undefined variable: 'calc'
+    mov qword [rbp-16], 0 ; Method call stub: calc.Add
 
     ; --- int product = calc.Multiply(4, 7); ---
     sub rsp, 8
-    ; ERROR evaluating expr: Undefined variable: 'calc'
+    mov qword [rbp-24], 0 ; Method call stub: calc.Multiply
 
     ; --- print("Calculator done"); ---
     lea rdi, [rel str_21]
     call _fsh_print_str
-
-    ; --- return; ---
 
     mov rsp, rbp
     pop rbp
@@ -438,21 +423,25 @@ DemoFunctionCalls:
 
     ; --- int result = Add(10, 20); ---
     sub rsp, 8
-    ; ERROR evaluating expr: Undefined variable: 'Add'
+    mov rdi, 10
+    mov rsi, 20
+    call Add
+    mov qword [rbp-8], rax
 
     ; --- string combined = Concatenate("Hello", "World"); ---
     sub rsp, 8
-    ; ERROR evaluating expr: Undefined variable: 'Concatenate'
+    lea rdi, [rel str_23]
+    lea rsi, [rel str_24]
+    call Concatenate
+    mov qword [rbp-16], rax
 
     ; --- PrintValue(42); ---
     ; Function call: PrintValue
     call PrintValue
 
     ; --- print("Functions done"); ---
-    lea rdi, [rel str_23]
+    lea rdi, [rel str_25]
     call _fsh_print_str
-
-    ; --- return; ---
 
     mov rsp, rbp
     pop rbp
@@ -466,30 +455,39 @@ DemoMathFunctions:
     mov rbp, rsp
 
     ; --- print("=== Math Functions ==="); ---
-    lea rdi, [rel str_24]
+    lea rdi, [rel str_26]
     call _fsh_print_str
 
     ; --- int abs_val = abs(0 - 42); ---
     sub rsp, 8
-    ; ERROR evaluating expr: Undefined variable: 'abs'
+    mov rdi, -42
+    call _fsh_abs
+    mov qword [rbp-8], rax
 
     ; --- int max_val = max(10, 5); ---
     sub rsp, 8
-    ; ERROR evaluating expr: Undefined variable: 'max'
+    mov rdi, 10
+    mov rsi, 5
+    call _fsh_max
+    mov qword [rbp-16], rax
 
     ; --- int min_val = min(10, 5); ---
     sub rsp, 8
-    ; ERROR evaluating expr: Undefined variable: 'min'
+    mov rdi, 10
+    mov rsi, 5
+    call _fsh_min
+    mov qword [rbp-24], rax
 
     ; --- int power_val = pow(2, 3); ---
     sub rsp, 8
-    ; ERROR evaluating expr: Undefined variable: 'pow'
+    mov rdi, 2
+    mov rsi, 3
+    call _fsh_pow
+    mov qword [rbp-32], rax
 
     ; --- print("Math done"); ---
-    lea rdi, [rel str_25]
+    lea rdi, [rel str_27]
     call _fsh_print_str
-
-    ; --- return; ---
 
     mov rsp, rbp
     pop rbp
@@ -503,24 +501,22 @@ DemoStrings:
     mov rbp, rsp
 
     ; --- print("=== Strings ==="); ---
-    lea rdi, [rel str_26]
+    lea rdi, [rel str_28]
     call _fsh_print_str
 
     ; --- string text = "FluxSharp"; ---
     sub rsp, 8
-    lea rax, [rel str_27]
+    lea rax, [rel str_29]
     mov [rbp-8], rax
 
     ; --- string greeting = "Hello" + " " + "World"; ---
     sub rsp, 8
-    lea rax, [rel str_28]
+    lea rax, [rel str_30]
     mov [rbp-16], rax
 
     ; --- print(greeting); ---
-    lea rdi, [rel str_29]
+    lea rdi, [rel str_31]
     call _fsh_print_str
-
-    ; --- return; ---
 
     mov rsp, rbp
     pop rbp
@@ -534,48 +530,47 @@ DemoBreakContinue:
     mov rbp, rsp
 
     ; --- print("=== Break/Continue ==="); ---
-    lea rdi, [rel str_30]
+    lea rdi, [rel str_32]
     call _fsh_print_str
 
     ; --- for (int i = 0; i < 10; i++) { ---
     sub rsp, 8
     mov rax, 0
     mov qword [rbp-8], rax
-.for_start_31:
+.for_start_33:
     mov rax, [rbp-8]
     cmp rax, 10
-    jge .for_end_31
+    jge .for_end_33
 
     ; --- if (i == 3) { ---
     mov rax, [rbp-8]
     cmp rax, 3
-    jne .if_false_32
+    jne .if_false_34
 
     ; --- continue; ---
-    ; continue (not yet fully implemented)
-    jmp .if_end_32
-.if_false_32:
-.if_end_32:
+    jmp .for_continue_33
+    jmp .if_end_34
+.if_false_34:
+.if_end_34:
 
     ; --- if (i == 7) { ---
     mov rax, [rbp-8]
     cmp rax, 7
-    jne .if_false_33
+    jne .if_false_35
 
     ; --- break; ---
-    ; break (not yet fully implemented)
-    jmp .if_end_33
-.if_false_33:
-.if_end_33:
+    jmp .for_end_33
+    jmp .if_end_35
+.if_false_35:
+.if_end_35:
 
     ; --- print("Loop"); ---
-    lea rdi, [rel str_34]
+    lea rdi, [rel str_36]
     call _fsh_print_str
+.for_continue_33:
     inc qword [rbp-8]
-    jmp .for_start_31
-.for_end_31:
-
-    ; --- return; ---
+    jmp .for_start_33
+.for_end_33:
 
     mov rsp, rbp
     pop rbp
@@ -591,22 +586,22 @@ ValidateNumber:
     ; --- if (n < 0) { ---
     ; condition: n < 0
     test rax, rax
-    jz .if_false_35
+    jz .if_false_37
 
     ; --- return 0 - 1; ---
-    jmp .if_end_35
-.if_false_35:
-.if_end_35:
+    jmp .if_end_37
+.if_false_37:
+.if_end_37:
 
     ; --- if (n > MAX_SIZE) { ---
     ; condition: n > MAX_SIZE
     test rax, rax
-    jz .if_false_36
+    jz .if_false_38
 
     ; --- return 0 - 1; ---
-    jmp .if_end_36
-.if_false_36:
-.if_end_36:
+    jmp .if_end_38
+.if_false_38:
+.if_end_38:
 
     ; --- return n; ---
 
@@ -622,122 +617,72 @@ Main:
     mov rbp, rsp
 
     ; --- print("============================================="); ---
-    lea rdi, [rel str_37]
-    call _fsh_print_str
-
-    ; --- print("FluxSharp - Complete Language Demonstration"); ---
-    lea rdi, [rel str_38]
-    call _fsh_print_str
-
-    ; --- print("============================================="); ---
     lea rdi, [rel str_39]
     call _fsh_print_str
 
-    ; --- print(""); ---
+    ; --- print("FluxSharp - Complete Language Demonstration"); ---
     lea rdi, [rel str_40]
+    call _fsh_print_str
+
+    ; --- print("============================================="); ---
+    lea rdi, [rel str_41]
     call _fsh_print_str
 
     ; --- DemoTypes(); ---
     ; Function call: DemoTypes
     call DemoTypes
 
-    ; --- print(""); ---
-    lea rdi, [rel str_41]
-    call _fsh_print_str
-
     ; --- DemoOperators(); ---
     ; Function call: DemoOperators
     call DemoOperators
-
-    ; --- print(""); ---
-    lea rdi, [rel str_42]
-    call _fsh_print_str
 
     ; --- DemoArrays(); ---
     ; Function call: DemoArrays
     call DemoArrays
 
-    ; --- print(""); ---
-    lea rdi, [rel str_43]
-    call _fsh_print_str
-
     ; --- DemoIfElse(); ---
     ; Function call: DemoIfElse
     call DemoIfElse
-
-    ; --- print(""); ---
-    lea rdi, [rel str_44]
-    call _fsh_print_str
 
     ; --- DemoForLoop(); ---
     ; Function call: DemoForLoop
     call DemoForLoop
 
-    ; --- print(""); ---
-    lea rdi, [rel str_45]
-    call _fsh_print_str
-
     ; --- DemoWhileLoop(); ---
     ; Function call: DemoWhileLoop
     call DemoWhileLoop
-
-    ; --- print(""); ---
-    lea rdi, [rel str_46]
-    call _fsh_print_str
 
     ; --- DemoClasses(); ---
     ; Function call: DemoClasses
     call DemoClasses
 
-    ; --- print(""); ---
-    lea rdi, [rel str_47]
-    call _fsh_print_str
-
     ; --- DemoFunctionCalls(); ---
     ; Function call: DemoFunctionCalls
     call DemoFunctionCalls
-
-    ; --- print(""); ---
-    lea rdi, [rel str_48]
-    call _fsh_print_str
 
     ; --- DemoMathFunctions(); ---
     ; Function call: DemoMathFunctions
     call DemoMathFunctions
 
-    ; --- print(""); ---
-    lea rdi, [rel str_49]
-    call _fsh_print_str
-
     ; --- DemoStrings(); ---
     ; Function call: DemoStrings
     call DemoStrings
-
-    ; --- print(""); ---
-    lea rdi, [rel str_50]
-    call _fsh_print_str
 
     ; --- DemoBreakContinue(); ---
     ; Function call: DemoBreakContinue
     call DemoBreakContinue
 
-    ; --- print(""); ---
-    lea rdi, [rel str_51]
-    call _fsh_print_str
-
     ; --- print("============================================="); ---
-    lea rdi, [rel str_52]
+    lea rdi, [rel str_42]
     call _fsh_print_str
 
     ; --- print("All demonstrations complete!"); ---
-    lea rdi, [rel str_53]
+    lea rdi, [rel str_43]
     call _fsh_print_str
 
     ; --- print("============================================="); ---
-    lea rdi, [rel str_54]
+    lea rdi, [rel str_44]
     call _fsh_print_str
-
-    ; --- return; ---
 
     mov rsp, rbp
     pop rbp

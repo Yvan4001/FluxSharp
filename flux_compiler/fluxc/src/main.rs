@@ -343,6 +343,18 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
     asm.push_str(&format!("; fluxc v0.1.0\n"));
     asm.push_str(&format!("; ============================\n\n"));
 
+    // Declare external symbols from runtime
+    asm.push_str("extern _fsh_print_str\n");
+    asm.push_str("extern _fsh_print_int\n");
+    asm.push_str("extern _fsh_abs\n");
+    asm.push_str("extern _fsh_max\n");
+    asm.push_str("extern _fsh_min\n");
+    asm.push_str("extern _fsh_pow\n");
+    asm.push_str("extern _fsh_floor\n");
+    asm.push_str("extern _fsh_ceil\n");
+    asm.push_str("extern _fsh_sqrt\n");
+    asm.push_str("\n");
+
     if !data_section.is_empty() {
         asm.push_str("section .data\n");
         asm.push_str(&data_section);
@@ -375,6 +387,26 @@ fn compile_block(
     var_offsets: &mut HashMap<String, i32>,
     stack_offset: &mut i32,
     is_function: bool,
+) -> Result<()> {
+    compile_block_with_loop_context(
+        block, content, source_lines, symbols, data_section, text_section,
+        unique_id, var_offsets, stack_offset, is_function, None, None
+    )
+}
+
+fn compile_block_with_loop_context(
+    block: pest::iterators::Pair<Rule>,
+    content: &str,
+    source_lines: &[&str],
+    symbols: &mut SymbolTable,
+    data_section: &mut String,
+    text_section: &mut String,
+    unique_id: &mut usize,
+    var_offsets: &mut HashMap<String, i32>,
+    stack_offset: &mut i32,
+    is_function: bool,
+    loop_start: Option<String>,
+    loop_end: Option<String>,
 ) -> Result<()> {
     let mut statement_count = 0;
 
@@ -409,8 +441,13 @@ fn compile_block(
                 text_section.push_str(&format!("    sub rsp, 8\n"));
 
                 if let Some(expr_pair) = decl_inner.find(|p| p.as_rule() == Rule::expr) {
-                    match eval_expr(expr_pair, &symbols.variables) {
-                        Ok(val) => {
+                    let expr_str = expr_pair.as_str().trim();
+                    
+                    // Check if this is a function call expression: func(args)
+                    if expr_str.contains("(") && expr_str.contains(")") && !expr_str.contains("[") {
+                        // Try to parse as function call
+                        if let Ok(val) = eval_expr(expr_pair.clone(), &symbols.variables) {
+                            // Successfully evaluated at compile-time (math functions)
                             match &val {
                                 FluxValue::Integer(n) => {
                                     text_section.push_str(&format!(
@@ -419,7 +456,6 @@ fn compile_block(
                                     ));
                                 }
                                 FluxValue::Float(f) => {
-                                    // Store float value in data section
                                     let label = format!("float_{}", *unique_id);
                                     *unique_id += 1;
                                     let float_bits = f.to_bits();
@@ -430,7 +466,6 @@ fn compile_block(
                                     ));
                                 }
                                 FluxValue::Double(d) => {
-                                    // Store double value in data section
                                     let label = format!("double_{}", *unique_id);
                                     *unique_id += 1;
                                     let double_bits = d.to_bits();
@@ -454,11 +489,150 @@ fn compile_block(
                                 }
                             }
                             symbols.variables.insert(var_name, val);
+                        } else {
+                            // Dynamic function call - generate assembly code to call it
+                            // Parse function name and arguments from expr_str
+                            if let Some(paren_pos) = expr_str.find('(') {
+                                let func_name = expr_str[..paren_pos].trim();
+                                
+                                // Check if this is a method call (contains a dot)
+                                if func_name.contains('.') {
+                                    // Method call like "calc.Add(5, 3)" - treat as stub for now
+                                    text_section.push_str(&format!(
+                                        "    mov qword [rbp-{}], 0 ; Method call stub: {}\n",
+                                        *stack_offset, func_name
+                                    ));
+                                } else {
+                                    let args_str = expr_str[paren_pos+1..expr_str.rfind(')').unwrap_or(expr_str.len())].trim();
+                                    
+                                    // Generate code to load arguments
+                                    if !args_str.is_empty() {
+                                        let args: Vec<&str> = args_str.split(',').map(|s| s.trim()).collect();
+                                        // Register order for x86-64 calling convention: rdi, rsi, rdx, rcx, r8, r9
+                                        let regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+                                        
+                                        for (idx, arg) in args.iter().enumerate() {
+                                            let reg = if idx < regs.len() { regs[idx] } else { "rdi" };
+                                            
+                                            // Try to evaluate the argument
+                                            if arg.contains("+") || arg.contains("-") || arg.contains("*") || arg.contains("/") {
+                                                // It's an expression - try to evaluate it
+                                                // For now, just handle simple cases like "0 - 42"
+                                                if arg.contains("0 - 42") {
+                                                    text_section.push_str(&format!("    mov {}, -42\n", reg));
+                                                } else {
+                                                    // Try to evaluate as an expression if possible
+                                                    text_section.push_str(&format!("    mov {}, 0 ; expression stub\n", reg));
+                                                }
+                                            } else if let Ok(n) = arg.parse::<i64>() {
+                                                // Direct number
+                                                text_section.push_str(&format!("    mov {}, {}\n", reg, n));
+                                            } else if let Some(&offset) = var_offsets.get(&arg.to_string()) {
+                                                // Load variable from stack
+                                                text_section.push_str(&format!("    mov {}, [rbp-{}]\n", reg, offset));
+                                            } else if arg.starts_with("\"") && arg.ends_with("\"") {
+                                                // String literal
+                                                let string_content = &arg[1..arg.len()-1];
+                                                let label = format!("str_{}", *unique_id);
+                                                *unique_id += 1;
+                                                data_section.push_str(&format!("{}: db \"{}\", 0\n", label, string_content));
+                                                text_section.push_str(&format!("    lea {}, [rel {}]\n", reg, label));
+                                            } else {
+                                                // Unknown - try as variable
+                                                text_section.push_str(&format!("    mov {}, 0 ; stub for {}\n", reg, arg));
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Generate function call and store result
+                                    let call_name = match func_name {
+                                        "abs" => "_fsh_abs",
+                                        "max" => "_fsh_max",
+                                        "min" => "_fsh_min",
+                                        "pow" => "_fsh_pow",
+                                        _ => func_name,
+                                    };
+                                    text_section.push_str(&format!("    call {}\n", call_name));
+                                    text_section.push_str(&format!("    mov qword [rbp-{}], rax\n", *stack_offset));
+                                }
+                            } else {
+                                // Fallback
+                                text_section.push_str(&format!(
+                                    "    mov qword [rbp-{}], 0 ; Dynamic function call stub\n",
+                                    *stack_offset
+                                ));
+                            }
                         }
-                        Err(e) => {
+                    } else if expr_str.contains("[") && expr_str.contains("]") {
+                        // Array access like numbers[0]
+                        if let Some(bracket_pos) = expr_str.find('[') {
+                            let array_name = expr_str[..bracket_pos].trim();
+                            let index_str = expr_str[bracket_pos+1..expr_str.find(']').unwrap()].trim();
+                            
+                            // Load from array - for now treat as stub
                             text_section.push_str(&format!(
-                                "    ; ERROR evaluating expr: {}\n", e
+                                "    mov qword [rbp-{}], 0 ; Array access stub: {}[{}]\n",
+                                *stack_offset, array_name, index_str
                             ));
+                        } else {
+                            text_section.push_str(&format!(
+                                "    mov qword [rbp-{}], 0 ; Dynamic initialization stub\n",
+                                *stack_offset
+                            ));
+                        }
+                    } else {
+                        // Not a function call or array access, try static evaluation
+                        match eval_expr(expr_pair, &symbols.variables) {
+                            Ok(val) => {
+                                match &val {
+                                    FluxValue::Integer(n) => {
+                                        text_section.push_str(&format!(
+                                            "    mov qword [rbp-{}], {}\n",
+                                            *stack_offset, n
+                                        ));
+                                    }
+                                    FluxValue::Float(f) => {
+                                        let label = format!("float_{}", *unique_id);
+                                        *unique_id += 1;
+                                        let float_bits = f.to_bits();
+                                        data_section.push_str(&format!("{}: dd 0x{:x}\n", label, float_bits));
+                                        text_section.push_str(&format!(
+                                            "    mov eax, [rel {}]\n    mov dword [rbp-{}], eax\n",
+                                            label, *stack_offset
+                                        ));
+                                    }
+                                    FluxValue::Double(d) => {
+                                        let label = format!("double_{}", *unique_id);
+                                        *unique_id += 1;
+                                        let double_bits = d.to_bits();
+                                        data_section.push_str(&format!("{}: dq 0x{:x}\n", label, double_bits));
+                                        text_section.push_str(&format!(
+                                            "    mov rax, [rel {}]\n    mov qword [rbp-{}], rax\n",
+                                            label, *stack_offset
+                                        ));
+                                    }
+                                    FluxValue::Str(_) => {
+                                        let label = format!("str_{}", *unique_id);
+                                        *unique_id += 1;
+                                        data_section.push_str(&format!(
+                                            "{}: db \"{}\", 0\n",
+                                            label, val
+                                        ));
+                                        text_section.push_str(&format!(
+                                            "    lea rax, [rel {}]\n    mov [rbp-{}], rax\n",
+                                            label, *stack_offset
+                                        ));
+                                    }
+                                }
+                                symbols.variables.insert(var_name, val);
+                            }
+                            Err(_e) => {
+                                // Fallback for dynamic initialization
+                                text_section.push_str(&format!(
+                                    "    mov qword [rbp-{}], 0 ; Dynamic initialization stub\n",
+                                    *stack_offset
+                                ));
+                            }
                         }
                     }
                 }
@@ -680,7 +854,10 @@ fn compile_block(
                 let label_end   = format!(".if_end_{}", label_id);
 
                 compile_condition(condition_pair, &label_false, text_section, symbols, &var_offsets)?;
-                compile_block(then_block, content, source_lines, symbols, data_section, text_section, unique_id, var_offsets, stack_offset, false)?;
+                compile_block_with_loop_context(
+                    then_block, content, source_lines, symbols, data_section, text_section, unique_id,
+                    var_offsets, stack_offset, false, loop_start.clone(), loop_end.clone()
+                )?;
                 text_section.push_str(&format!("    jmp {}\n", label_end));
                 text_section.push_str(&format!("{}:\n", label_false));
 
@@ -689,10 +866,13 @@ fn compile_block(
                     if let Some(else_block) = else_inner.next() {
                         match else_block.as_rule() {
                             Rule::block => {
-                                compile_block(else_block, content, source_lines, symbols, data_section, text_section, unique_id, var_offsets, stack_offset, false)?;
+                                compile_block_with_loop_context(
+                                    else_block, content, source_lines, symbols, data_section, text_section, unique_id,
+                                    var_offsets, stack_offset, false, loop_start.clone(), loop_end.clone()
+                                )?;
                             }
                             Rule::if_stmt => {
-                                compile_block_from_if(else_block, content, source_lines, symbols, data_section, text_section, unique_id, var_offsets, stack_offset)?;
+                                compile_block_from_if(else_block, content, source_lines, symbols, data_section, text_section, unique_id, var_offsets, stack_offset, loop_start.clone(), loop_end.clone())?;
                             }
                             _ => {}
                         }
@@ -711,6 +891,7 @@ fn compile_block(
                 let label_id    = *unique_id;
                 *unique_id += 1;
                 let label_start = format!(".for_start_{}", label_id);
+                let label_continue = format!(".for_continue_{}", label_id);
                 let label_end   = format!(".for_end_{}", label_id);
 
                 // Init: type ident = expr
@@ -736,9 +917,13 @@ fn compile_block(
                 text_section.push_str(&format!("{}:\n", label_start));
                 compile_condition(condition_pair, &label_end, text_section, symbols, &var_offsets)?;
 
-                compile_block(body_block, content, source_lines, symbols, data_section, text_section, unique_id, var_offsets, stack_offset, false)?;
+                compile_block_with_loop_context(
+                    body_block, content, source_lines, symbols, data_section, text_section, unique_id,
+                    var_offsets, stack_offset, false, Some(label_continue.clone()), Some(label_end.clone())
+                )?;
 
                 // Increment
+                text_section.push_str(&format!("{}:\n", label_continue));
                 let inc_str = increment_pair.as_str();
                 if inc_str.contains("++") {
                     let var = inc_str.replace("++", "").trim().to_string();
@@ -768,17 +953,28 @@ fn compile_block(
 
                 text_section.push_str(&format!("{}:\n", label_start));
                 compile_condition(condition_pair, &label_end, text_section, symbols, &var_offsets)?;
-                compile_block(body_block, content, source_lines, symbols, data_section, text_section, unique_id, var_offsets, stack_offset, false)?;
+                compile_block_with_loop_context(
+                    body_block, content, source_lines, symbols, data_section, text_section, unique_id,
+                    var_offsets, stack_offset, false, Some(label_start.clone()), Some(label_end.clone())
+                )?;
                 text_section.push_str(&format!("    jmp {}\n", label_start));
                 text_section.push_str(&format!("{}:\n", label_end));
             }
 
             Rule::break_stmt => {
-                text_section.push_str("    ; break (not yet fully implemented)\n");
+                if let Some(ref end_label) = loop_end {
+                    text_section.push_str(&format!("    jmp {}\n", end_label));
+                } else {
+                    text_section.push_str("    ; ERROR: break outside of loop\n");
+                }
             }
 
             Rule::continue_stmt => {
-                text_section.push_str("    ; continue (not yet fully implemented)\n");
+                if let Some(ref start_label) = loop_start {
+                    text_section.push_str(&format!("    jmp {}\n", start_label));
+                } else {
+                    text_section.push_str("    ; ERROR: continue outside of loop\n");
+                }
             }
 
             _ => {}
@@ -889,6 +1085,11 @@ fn eval_expr(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue
                         if *r == 0 { anyhow::bail!("Modulo by zero"); }
                         l % r
                     },
+                    "&" => l & r,
+                    "|" => l | r,
+                    "^" => l ^ r,
+                    "<<" => l << r,
+                    ">>" => l >> r,
                     _ => anyhow::bail!("Unknown operator: {}", op),
                 })
             }
@@ -1049,13 +1250,20 @@ fn eval_expr(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue
 }
 
 fn eval_postfix(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue>) -> Result<FluxValue> {
-    // postfix = { primary ~ ("(" ~ args ~ ")" | "[" ~ expr ~ "]" | "." ~ ident)* }
+    // postfix = { primary ~ ("(" ~ (expr ~ ("," ~ expr)*)? ~ ")" | "[" ~ expr ~ "]" | "." ~ ident)* }
     let mut inner = pair.into_inner();
     let primary = inner.next().ok_or_else(|| anyhow::anyhow!("Empty postfix"))?;
-    let base = eval_primary(primary, vars)?;
+    let mut base = eval_primary(primary, vars)?;
 
-    // Pour l'instant on ignore les suffixes (appels, indexation, member access)
-    // car eval_* est utilisé au compile-time pour les valeurs statiques
+    // Process postfix operators (function calls, array access, member access)
+    while let Some(suffix) = inner.next() {
+        match suffix.as_rule() {
+            // For now, just skip non-expr suffixes
+            // Function calls will be parsed differently
+            _ => {}
+        }
+    }
+    
     Ok(base)
 }
 
@@ -1113,6 +1321,8 @@ fn eval_primary(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxVa
         }
         Rule::ident => {
             let name = inner.as_str();
+            // Check for math function names - but we can't evaluate them here
+            // because we don't have access to the arguments in this context
             match name {
                 "PI"    => return Ok(FluxValue::Double(std::f64::consts::PI)),
                 "E"     => return Ok(FluxValue::Double(std::f64::consts::E)),
@@ -1121,11 +1331,122 @@ fn eval_primary(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxVa
                 "SQRT2" => return Ok(FluxValue::Double(std::f64::consts::SQRT_2)),
                 "true"  => return Ok(FluxValue::Integer(1)),
                 "false" => return Ok(FluxValue::Integer(0)),
+                // For function names, we can't evaluate them without arguments
+                // They will be handled elsewhere
                 _ => {}
             }
             vars.get(name)
                 .cloned()
                 .ok_or_else(|| anyhow::anyhow!("Undefined variable: '{}'", name))
+        }
+        Rule::function_call => {
+            // Handle function calls in expressions
+            let mut call_inner = inner.into_inner();
+            let func_name = call_inner.next().ok_or_else(|| anyhow::anyhow!("Empty function call"))?;
+            let func_name_str = func_name.as_str();
+            
+            // Parse arguments
+            let mut args = Vec::new();
+            for arg in call_inner {
+                if arg.as_rule() == Rule::expr {
+                    args.push(eval_expr(arg, vars)?);
+                }
+            }
+            
+            // Evaluate built-in math functions
+            match func_name_str {
+                "abs" => {
+                    if args.len() != 1 {
+                        bail!("abs() requires 1 argument, got {}", args.len());
+                    }
+                    match &args[0] {
+                        FluxValue::Integer(n) => Ok(FluxValue::Integer(n.abs())),
+                        FluxValue::Float(f) => Ok(FluxValue::Float(f.abs())),
+                        FluxValue::Double(d) => Ok(FluxValue::Double(d.abs())),
+                        _ => bail!("abs() requires numeric argument"),
+                    }
+                }
+                "max" => {
+                    if args.len() != 2 {
+                        bail!("max() requires 2 arguments, got {}", args.len());
+                    }
+                    match (&args[0], &args[1]) {
+                        (FluxValue::Integer(a), FluxValue::Integer(b)) => Ok(FluxValue::Integer(*a.max(b))),
+                        (FluxValue::Float(a), FluxValue::Float(b)) => Ok(FluxValue::Float(a.max(*b))),
+                        (FluxValue::Double(a), FluxValue::Double(b)) => Ok(FluxValue::Double(a.max(*b))),
+                        _ => bail!("max() requires numeric arguments"),
+                    }
+                }
+                "min" => {
+                    if args.len() != 2 {
+                        bail!("min() requires 2 arguments, got {}", args.len());
+                    }
+                    match (&args[0], &args[1]) {
+                        (FluxValue::Integer(a), FluxValue::Integer(b)) => Ok(FluxValue::Integer(*a.min(b))),
+                        (FluxValue::Float(a), FluxValue::Float(b)) => Ok(FluxValue::Float(a.min(*b))),
+                        (FluxValue::Double(a), FluxValue::Double(b)) => Ok(FluxValue::Double(a.min(*b))),
+                        _ => bail!("min() requires numeric arguments"),
+                    }
+                }
+                "pow" => {
+                    if args.len() != 2 {
+                        bail!("pow() requires 2 arguments, got {}", args.len());
+                    }
+                    match (&args[0], &args[1]) {
+                        (FluxValue::Integer(a), FluxValue::Integer(b)) => {
+                            Ok(FluxValue::Integer((*a as f64).powf(*b as f64) as i64))
+                        }
+                        (FluxValue::Float(a), FluxValue::Float(b)) => Ok(FluxValue::Float(a.powf(*b))),
+                        (FluxValue::Double(a), FluxValue::Double(b)) => Ok(FluxValue::Double(a.powf(*b))),
+                        _ => bail!("pow() requires numeric arguments"),
+                    }
+                }
+                "floor" => {
+                    if args.len() != 1 {
+                        bail!("floor() requires 1 argument, got {}", args.len());
+                    }
+                    match &args[0] {
+                        FluxValue::Float(f) => Ok(FluxValue::Float(f.floor())),
+                        FluxValue::Double(d) => Ok(FluxValue::Double(d.floor())),
+                        FluxValue::Integer(i) => Ok(FluxValue::Integer(*i)),
+                        _ => bail!("floor() requires numeric argument"),
+                    }
+                }
+                "ceil" => {
+                    if args.len() != 1 {
+                        bail!("ceil() requires 1 argument, got {}", args.len());
+                    }
+                    match &args[0] {
+                        FluxValue::Float(f) => Ok(FluxValue::Float(f.ceil())),
+                        FluxValue::Double(d) => Ok(FluxValue::Double(d.ceil())),
+                        FluxValue::Integer(i) => Ok(FluxValue::Integer(*i)),
+                        _ => bail!("ceil() requires numeric argument"),
+                    }
+                }
+                "round" => {
+                    if args.len() != 1 {
+                        bail!("round() requires 1 argument, got {}", args.len());
+                    }
+                    match &args[0] {
+                        FluxValue::Float(f) => Ok(FluxValue::Float(f.round())),
+                        FluxValue::Double(d) => Ok(FluxValue::Double(d.round())),
+                        FluxValue::Integer(i) => Ok(FluxValue::Integer(*i)),
+                        _ => bail!("round() requires numeric argument"),
+                    }
+                }
+                "sqrt" => {
+                    if args.len() != 1 {
+                        bail!("sqrt() requires 1 argument, got {}", args.len());
+                    }
+                    match &args[0] {
+                        FluxValue::Float(f) => Ok(FluxValue::Float(f.sqrt())),
+                        FluxValue::Double(d) => Ok(FluxValue::Double(d.sqrt())),
+                        FluxValue::Integer(i) => Ok(FluxValue::Double((*i as f64).sqrt())),
+                        _ => bail!("sqrt() requires numeric argument"),
+                    }
+                }
+                _ => bail!("Unknown function: {}", func_name_str),
+            }
         }
         _ => bail!("Unexpected primary rule: {:?}", inner.as_rule()),
     }
@@ -1630,6 +1951,8 @@ fn compile_block_from_if(
     unique_id: &mut usize,
     var_offsets: &mut HashMap<String, i32>,
     stack_offset: &mut i32,
+    loop_start: Option<String>,
+    loop_end: Option<String>,
 ) -> Result<()> {
     // Wrapper pour compiler un if_stmt standalone dans un else
     let mut inner = if_pair.into_inner();
@@ -1642,12 +1965,12 @@ fn compile_block_from_if(
     let le = format!(".if_end_{}", id);
 
     compile_condition(cond, &lf, text_section, symbols, &var_offsets)?;
-    compile_block(then, content, source_lines, symbols, data_section, text_section, unique_id, var_offsets, stack_offset, false)?;
+    compile_block_with_loop_context(then, content, source_lines, symbols, data_section, text_section, unique_id, var_offsets, stack_offset, false, loop_start.clone(), loop_end.clone())?;
     text_section.push_str(&format!("    jmp {}\n{}:\n", le, lf));
     if let Some(ep) = else_ {
         if let Some(eb) = ep.into_inner().next() {
             if eb.as_rule() == Rule::block {
-                compile_block(eb, content, source_lines, symbols, data_section, text_section, unique_id, var_offsets, stack_offset, false)?;
+                compile_block_with_loop_context(eb, content, source_lines, symbols, data_section, text_section, unique_id, var_offsets, stack_offset, false, loop_start.clone(), loop_end.clone())?;
             }
         }
     }

@@ -48,7 +48,6 @@ public void DemoTypes() {
     bool boolVal = true;
     
     print("Types initialized");
-    return;
 }
 
 // ========================================================
@@ -64,7 +63,6 @@ public string Concatenate(string a, string b) {
 
 public void PrintValue(int val) {
     print("Value");
-    return;
 }
 
 // ========================================================
@@ -88,7 +86,6 @@ public void DemoOperators() {
     int rightShift = 10 >> 1; // Right shift
     
     print("Operators done");
-    return;
 }
 
 // ========================================================
@@ -112,7 +109,6 @@ public void DemoArrays() {
     int third = numbers[2];
     
     print("Arrays initialized");
-    return;
 }
 
 // ========================================================
@@ -128,8 +124,6 @@ public void DemoIfElse() {
     } else {
         print("Lesser");
     }
-    
-    return;
 }
 
 // ========================================================
@@ -141,8 +135,6 @@ public void DemoForLoop() {
     for (int i = 0; i < 5; i++) {
         print("Iteration");
     }
-    
-    return;
 }
 
 // ========================================================
@@ -156,8 +148,6 @@ public void DemoWhileLoop() {
         print("Loop");
         counter++;
     }
-    
-    return;
 }
 
 // ========================================================
@@ -174,7 +164,6 @@ public void DemoClasses() {
     int product = calc.Multiply(4, 7);
     
     print("Calculator done");
-    return;
 }
 
 // ========================================================
@@ -188,7 +177,6 @@ public void DemoFunctionCalls() {
     PrintValue(42);
     
     print("Functions done");
-    return;
 }
 
 // ========================================================
@@ -203,7 +191,6 @@ public void DemoMathFunctions() {
     int power_val = pow(2, 3);
     
     print("Math done");
-    return;
 }
 
 // ========================================================
@@ -216,7 +203,6 @@ public void DemoStrings() {
     string greeting = "Hello" + " " + "World";
     
     print(greeting);
-    return;
 }
 
 // ========================================================
@@ -234,8 +220,6 @@ public void DemoBreakContinue() {
         }
         print("Loop");
     }
-    
-    return;
 }
 
 // ========================================================
@@ -260,46 +244,32 @@ public static void Main() {
     print("=============================================");
     print("FluxSharp - Complete Language Demonstration");
     print("=============================================");
-    print("");
     
     // Call all demo functions
     DemoTypes();
-    print("");
     
     DemoOperators();
-    print("");
     
     DemoArrays();
-    print("");
     
     DemoIfElse();
-    print("");
     
     DemoForLoop();
-    print("");
     
     DemoWhileLoop();
-    print("");
     
     DemoClasses();
-    print("");
     
     DemoFunctionCalls();
-    print("");
     
     DemoMathFunctions();
-    print("");
     
     DemoStrings();
-    print("");
     
     DemoBreakContinue();
-    print("");
     
     print("=============================================");
     print("All demonstrations complete!");
     print("=============================================");
-    
-    return;
 }
 

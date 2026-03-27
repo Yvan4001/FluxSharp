@@ -267,6 +267,10 @@ _fsh_sqrt:
 global _fsh_abs
 _fsh_abs:
     mov rax, rdi
+    cmp rax, 0
+    jge .abs_end
+    neg rax
+.abs_end:
     ret
 ; --- _fsh_floor ---
 global _fsh_floor
@@ -278,6 +282,40 @@ global _fsh_ceil
 _fsh_ceil:
     mov rax, rdi
     ret
+; --- _fsh_max ---
+global _fsh_max
+_fsh_max:
+    mov rax, rdi
+    cmp rax, rsi
+    jge .max_end
+    mov rax, rsi
+.max_end:
+    ret
+; --- _fsh_min ---
+global _fsh_min
+_fsh_min:
+    mov rax, rdi
+    cmp rax, rsi
+    jle .min_end
+    mov rax, rsi
+.min_end:
+    ret
+; --- _fsh_pow ---
+global _fsh_pow
+_fsh_pow:
+    mov rax, 1
+    mov rcx, rsi
+    cmp rcx, 0
+    jle .pow_end
+.pow_loop:
+    imul rax, rdi
+    dec rcx
+    cmp rcx, 0
+    jg .pow_loop
+.pow_end:
+    ret
+
+
 section .bss
     buffer resb 40
     fbuffer resb 64
