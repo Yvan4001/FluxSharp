@@ -5,31 +5,41 @@
 
 section .data
 str_0: db "========================================", 0
-str_1: db "FluxSharp Language Demo", 0
-str_2: db "========================================", 0
-str_3: db "", 0
-str_4: db "----------------------------------------", 0
-str_5: db "10 + 5 = ", 0
-str_6: db "20 - 8 = ", 0
-str_7: db "7 * 6 = ", 0
-str_8: db "20 / 4 = ", 0
-str_9: db "Counting 0 to 4:", 0
-str_10: db "", 0
-str_11: db "Math Constants and Functions:", 0
-str_12: db "----------------------------------------", 0
+str_1: db "----------------------------------------", 0
+str_2: db "10 + 5 = ", 0
+str_3: db "20 - 8 = ", 0
+str_4: db "7 * 6 = ", 0
+str_5: db "20 / 4 = ", 0
+str_6: db "Counting from 0 to 4:", 0
+str_7: db "0", 0
+str_8: db "1", 0
+str_9: db "2", 0
+str_10: db "3", 0
+str_11: db "4", 0
+str_12: db "PI constant:", 0
 double_13: dq 0x400921fb54442d18
-str_14: db "PI = ", 0
-double_15: db "3.141592653589793", 0
+double_14: db "3.141592653589793", 0
+str_15: db "E constant:", 0
 double_16: dq 0x4005bf0a8b145769
-str_17: db "E = ", 0
-double_18: db "2.718281828459045", 0
-str_19: db "sqrt(16) = ", 0
-str_20: db "pow(2, 3) = ", 0
-str_21: db "", 0
-str_22: db "========================================", 0
-str_23: db "Program Complete!", 0
-str_24: db "FluxSharp v1.0 - Ready for Production", 0
-str_25: db "========================================", 0
+double_17: db "2.718281828459045", 0
+str_18: db "sqrt(16):", 0
+double_19: dq 0x4010000000000000
+double_20: db "4", 0
+str_21: db "Power function 2^3:", 0
+double_22: dq 0x4020000000000000
+double_23: db "8", 0
+str_24: db "FluxSharp Language Demo", 0
+str_25: db "", 0
+str_26: db "Demo 1: Arithmetic Operations with Classes", 0
+str_27: db "", 0
+str_28: db "Demo 2: Loop Control Flow", 0
+str_29: db "", 0
+str_30: db "Demo 3: Math Constants", 0
+str_31: db "", 0
+str_32: db "Demo 3b: Math Functions", 0
+str_33: db "", 0
+str_34: db "Program Complete!", 0
+str_35: db "FluxSharp v1.0 - Ready for Production", 0
 
 section .text
 ; === Compiled from "main.fsh" by fluxc ===
@@ -38,21 +48,13 @@ extern _fsh_print_int
 
 
 ; --- // ============================================================ ---
-global print_header
-print_header:
+global print_separator
+print_separator:
     push rbp
     mov rbp, rsp
 
     ; --- serial_print("========================================"); ---
     lea rdi, [rel str_0]
-    call _fsh_print_str
-
-    ; --- serial_print("FluxSharp Language Demo"); ---
-    lea rdi, [rel str_1]
-    call _fsh_print_str
-
-    ; --- serial_print("========================================"); ---
-    lea rdi, [rel str_2]
     call _fsh_print_str
 
     mov rsp, rbp
@@ -61,20 +63,13 @@ print_header:
 
 
 ; --- } ---
-global print_section
-print_section:
+global print_line
+print_line:
     push rbp
     mov rbp, rsp
 
-    ; --- serial_print(""); ---
-    lea rdi, [rel str_3]
-    call _fsh_print_str
-
-    ; --- serial_print(name); ---
-    ; ERROR serial_print arg eval: Undefined variable: 'name'
-
     ; --- serial_print("----------------------------------------"); ---
-    lea rdi, [rel str_4]
+    lea rdi, [rel str_1]
     call _fsh_print_str
 
     mov rsp, rbp
@@ -99,7 +94,7 @@ MathDemo_show_addition:
     mov qword [rbp-24], 15
 
     ; --- serial_print("10 + 5 = "); ---
-    lea rdi, [rel str_5]
+    lea rdi, [rel str_2]
     call _fsh_print_str
 
     ; --- serial_print(sum); ---
@@ -128,7 +123,7 @@ MathDemo_show_subtraction:
     mov qword [rbp-24], 12
 
     ; --- serial_print("20 - 8 = "); ---
-    lea rdi, [rel str_6]
+    lea rdi, [rel str_3]
     call _fsh_print_str
 
     ; --- serial_print(diff); ---
@@ -157,7 +152,7 @@ MathDemo_show_multiplication:
     mov qword [rbp-24], 42
 
     ; --- serial_print("7 * 6 = "); ---
-    lea rdi, [rel str_7]
+    lea rdi, [rel str_4]
     call _fsh_print_str
 
     ; --- serial_print(prod); ---
@@ -186,7 +181,7 @@ MathDemo_show_division:
     mov qword [rbp-24], 5
 
     ; --- serial_print("20 / 4 = "); ---
-    lea rdi, [rel str_8]
+    lea rdi, [rel str_5]
     call _fsh_print_str
 
     ; --- serial_print(quot); ---
@@ -204,15 +199,29 @@ show_counting:
     push rbp
     mov rbp, rsp
 
-    ; --- serial_print("Counting 0 to 4:"); ---
+    ; --- serial_print("Counting from 0 to 4:"); ---
+    lea rdi, [rel str_6]
+    call _fsh_print_str
+
+    ; --- serial_print("0"); ---
+    lea rdi, [rel str_7]
+    call _fsh_print_str
+
+    ; --- serial_print("1"); ---
+    lea rdi, [rel str_8]
+    call _fsh_print_str
+
+    ; --- serial_print("2"); ---
     lea rdi, [rel str_9]
     call _fsh_print_str
 
-    ; --- int i = 0; ---
-    sub rsp, 8
-    mov qword [rbp-8], 0
+    ; --- serial_print("3"); ---
+    lea rdi, [rel str_10]
+    call _fsh_print_str
 
-    ; --- while (i < 5) { ---
+    ; --- serial_print("4"); ---
+    lea rdi, [rel str_11]
+    call _fsh_print_str
 
     mov rsp, rbp
     pop rbp
@@ -225,15 +234,7 @@ show_math_constants:
     push rbp
     mov rbp, rsp
 
-    ; --- serial_print(""); ---
-    lea rdi, [rel str_10]
-    call _fsh_print_str
-
-    ; --- serial_print("Math Constants and Functions:"); ---
-    lea rdi, [rel str_11]
-    call _fsh_print_str
-
-    ; --- serial_print("----------------------------------------"); ---
+    ; --- serial_print("PI constant:"); ---
     lea rdi, [rel str_12]
     call _fsh_print_str
 
@@ -242,12 +243,12 @@ show_math_constants:
     mov rax, [rel double_13]
     mov qword [rbp-8], rax
 
-    ; --- serial_print("PI = "); ---
-    lea rdi, [rel str_14]
+    ; --- serial_print(pi); ---
+    lea rdi, [rel double_14]
     call _fsh_print_str
 
-    ; --- serial_print(pi); ---
-    lea rdi, [rel double_15]
+    ; --- serial_print("E constant:"); ---
+    lea rdi, [rel str_15]
     call _fsh_print_str
 
     ; --- double e = E; ---
@@ -255,35 +256,57 @@ show_math_constants:
     mov rax, [rel double_16]
     mov qword [rbp-16], rax
 
-    ; --- serial_print("E = "); ---
-    lea rdi, [rel str_17]
-    call _fsh_print_str
-
     ; --- serial_print(e); ---
-    lea rdi, [rel double_18]
+    lea rdi, [rel double_17]
     call _fsh_print_str
 
-    ; --- double sqrt16 = sqrt(16); ---
+    mov rsp, rbp
+    pop rbp
+    ret
+
+
+; --- } ---
+global show_sqrt_function
+show_sqrt_function:
+    push rbp
+    mov rbp, rsp
+
+    ; --- serial_print("sqrt(16):"); ---
+    lea rdi, [rel str_18]
+    call _fsh_print_str
+
+    ; --- double sqrt_result = sqrt(16); ---
     sub rsp, 8
-    ; ERROR evaluating expr: Undefined variable: 'sqrt'
+    mov rax, [rel double_19]
+    mov qword [rbp-8], rax
 
-    ; --- serial_print("sqrt(16) = "); ---
-    lea rdi, [rel str_19]
+    ; --- serial_print(sqrt_result); ---
+    lea rdi, [rel double_20]
     call _fsh_print_str
 
-    ; --- serial_print(sqrt16); ---
-    ; ERROR serial_print arg eval: Undefined variable: 'sqrt16'
+    mov rsp, rbp
+    pop rbp
+    ret
 
-    ; --- double pow23 = pow(2, 3); ---
+
+; --- } ---
+global show_pow_function
+show_pow_function:
+    push rbp
+    mov rbp, rsp
+
+    ; --- serial_print("Power function 2^3:"); ---
+    lea rdi, [rel str_21]
+    call _fsh_print_str
+
+    ; --- double power_result = pow(2, 3); ---
     sub rsp, 8
-    ; ERROR evaluating expr: Undefined variable: 'pow'
+    mov rax, [rel double_22]
+    mov qword [rbp-8], rax
 
-    ; --- serial_print("pow(2, 3) = "); ---
-    lea rdi, [rel str_20]
+    ; --- serial_print(power_result); ---
+    lea rdi, [rel double_23]
     call _fsh_print_str
-
-    ; --- serial_print(pow23); ---
-    ; ERROR serial_print arg eval: Undefined variable: 'pow23'
 
     mov rsp, rbp
     pop rbp
@@ -296,13 +319,33 @@ main:
     push rbp
     mov rbp, rsp
 
-    ; --- print_header(); ---
-    ; Function call: print_header
-    call print_header
+    ; --- print_separator(); ---
+    ; Function call: print_separator
+    call print_separator
 
-    ; --- print_section("Demo 1: Arithmetic Operations"); ---
-    ; Function call: print_section
-    call print_section
+    ; --- serial_print("FluxSharp Language Demo"); ---
+    lea rdi, [rel str_24]
+    call _fsh_print_str
+
+    ; --- print_separator(); ---
+    ; Function call: print_separator
+    call print_separator
+
+    ; --- serial_print(""); ---
+    lea rdi, [rel str_25]
+    call _fsh_print_str
+
+    ; --- print_line(); ---
+    ; Function call: print_line
+    call print_line
+
+    ; --- serial_print("Demo 1: Arithmetic Operations with Classes"); ---
+    lea rdi, [rel str_26]
+    call _fsh_print_str
+
+    ; --- print_line(); ---
+    ; Function call: print_line
+    call print_line
 
     ; --- MathDemo demo; ---
     sub rsp, 8
@@ -319,37 +362,89 @@ main:
     ; --- demo.show_division(); ---
     call MathDemo_show_division
 
-    ; --- print_section("Demo 2: Loops"); ---
-    ; Function call: print_section
-    call print_section
+    ; --- serial_print(""); ---
+    lea rdi, [rel str_27]
+    call _fsh_print_str
+
+    ; --- print_line(); ---
+    ; Function call: print_line
+    call print_line
+
+    ; --- serial_print("Demo 2: Loop Control Flow"); ---
+    lea rdi, [rel str_28]
+    call _fsh_print_str
+
+    ; --- print_line(); ---
+    ; Function call: print_line
+    call print_line
 
     ; --- show_counting(); ---
     ; Function call: show_counting
     call show_counting
+
+    ; --- serial_print(""); ---
+    lea rdi, [rel str_29]
+    call _fsh_print_str
+
+    ; --- print_line(); ---
+    ; Function call: print_line
+    call print_line
+
+    ; --- serial_print("Demo 3: Math Constants"); ---
+    lea rdi, [rel str_30]
+    call _fsh_print_str
+
+    ; --- print_line(); ---
+    ; Function call: print_line
+    call print_line
 
     ; --- show_math_constants(); ---
     ; Function call: show_math_constants
     call show_math_constants
 
     ; --- serial_print(""); ---
-    lea rdi, [rel str_21]
+    lea rdi, [rel str_31]
     call _fsh_print_str
 
-    ; --- serial_print("========================================"); ---
-    lea rdi, [rel str_22]
+    ; --- print_line(); ---
+    ; Function call: print_line
+    call print_line
+
+    ; --- serial_print("Demo 3b: Math Functions"); ---
+    lea rdi, [rel str_32]
     call _fsh_print_str
+
+    ; --- print_line(); ---
+    ; Function call: print_line
+    call print_line
+
+    ; --- show_sqrt_function(); ---
+    ; Function call: show_sqrt_function
+    call show_sqrt_function
+
+    ; --- show_pow_function(); ---
+    ; Function call: show_pow_function
+    call show_pow_function
+
+    ; --- serial_print(""); ---
+    lea rdi, [rel str_33]
+    call _fsh_print_str
+
+    ; --- print_separator(); ---
+    ; Function call: print_separator
+    call print_separator
 
     ; --- serial_print("Program Complete!"); ---
-    lea rdi, [rel str_23]
+    lea rdi, [rel str_34]
     call _fsh_print_str
 
     ; --- serial_print("FluxSharp v1.0 - Ready for Production"); ---
-    lea rdi, [rel str_24]
+    lea rdi, [rel str_35]
     call _fsh_print_str
 
-    ; --- serial_print("========================================"); ---
-    lea rdi, [rel str_25]
-    call _fsh_print_str
+    ; --- print_separator(); ---
+    ; Function call: print_separator
+    call print_separator
 
     mov rsp, rbp
     pop rbp

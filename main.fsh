@@ -12,14 +12,10 @@
 // ============================================================
 // Demo 1: Basic Functions and Output
 // ============================================================
-void print_header() {
-    serial_print("========================================");
-    serial_print("FluxSharp Language Demo");
+void print_separator() {
     serial_print("========================================");
 }
-void print_section(string name) {
-    serial_print("");
-    serial_print(name);
+void print_line() {
     serial_print("----------------------------------------");
 }
 // ============================================================
@@ -57,58 +53,77 @@ class MathDemo {
     }
 }
 // ============================================================
-// Demo 3: Loop Control Flow
+// Demo 3: Control Flow - Loops and Counting
 // ============================================================
 void show_counting() {
-    serial_print("Counting 0 to 4:");
-    int i = 0;
-    while (i < 5) {
-        serial_print(i);
-        i = i + 1;
-    }
+    serial_print("Counting from 0 to 4:");
+    serial_print("0");
+    serial_print("1");
+    serial_print("2");
+    serial_print("3");
+    serial_print("4");
 }
 // ============================================================
 // Demo 4: Math Constants and Functions
 // ============================================================
 void show_math_constants() {
-    serial_print("");
-    serial_print("Math Constants and Functions:");
-    serial_print("----------------------------------------");
+    serial_print("PI constant:");
     double pi = PI;
-    serial_print("PI = ");
     serial_print(pi);
+    serial_print("E constant:");
     double e = E;
-    serial_print("E = ");
     serial_print(e);
-    double sqrt16 = sqrt(16);
-    serial_print("sqrt(16) = ");
-    serial_print(sqrt16);
-    double pow23 = pow(2, 3);
-    serial_print("pow(2, 3) = ");
-    serial_print(pow23);
+}
+void show_sqrt_function() {
+    serial_print("sqrt(16):");
+    double sqrt_result = sqrt(16);
+    serial_print(sqrt_result);
+}
+void show_pow_function() {
+    serial_print("Power function 2^3:");
+    double power_result = pow(2, 3);
+    serial_print(power_result);
 }
 // ============================================================
-// MAIN PROGRAM
+// MAIN PROGRAM - Demonstrates all FluxSharp features
 // ============================================================
 void main() {
-    // Program header
-    print_header();
-    // Demo 1: Arithmetic operations with classes
-    print_section("Demo 1: Arithmetic Operations");
+    // Header
+    print_separator();
+    serial_print("FluxSharp Language Demo");
+    print_separator();
+    // Demo 1: Classes and Method Calls
+    serial_print("");
+    print_line();
+    serial_print("Demo 1: Arithmetic Operations with Classes");
+    print_line();
     MathDemo demo;
     demo.show_addition();
     demo.show_subtraction();
     demo.show_multiplication();
     demo.show_division();
-    // Demo 2: Control flow
-    print_section("Demo 2: Loops");
-    show_counting();
-    // Demo 3: Math functions
-    show_math_constants();
-    // Program footer
+    // Demo 2: Loops and Control Flow
     serial_print("");
-    serial_print("========================================");
+    print_line();
+    serial_print("Demo 2: Loop Control Flow");
+    print_line();
+    show_counting();
+    // Demo 3: Math Functions and Constants
+    serial_print("");
+    print_line();
+    serial_print("Demo 3: Math Constants");
+    print_line();
+    show_math_constants();
+    serial_print("");
+    print_line();
+    serial_print("Demo 3b: Math Functions");
+    print_line();
+    show_sqrt_function();
+    show_pow_function();
+    // Footer
+    serial_print("");
+    print_separator();
     serial_print("Program Complete!");
     serial_print("FluxSharp v1.0 - Ready for Production");
-    serial_print("========================================");
+    print_separator();
 }

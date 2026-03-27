@@ -499,7 +499,7 @@ fn compile_block(
                 // Handle built-in functions
                 if callee == "serial_print" || callee == "print" {
                     if let Some(arg_pair) = call_inner.next() {
-                        match eval_expr(arg_pair, &symbols.variables) {
+                        match eval_expr(arg_pair.clone(), &symbols.variables) {
                             Ok(val) => match val {
                                 FluxValue::Str(text) => {
                                     let label = format!("str_{}", *unique_id);
@@ -540,8 +540,23 @@ fn compile_block(
                                     ));
                                 }
                             },
-                            Err(e) => {
-                                text_section.push_str(&format!("    ; ERROR {} arg eval: {}\n", callee, e));
+                            Err(_e) => {
+                                // Try to handle as variable reference if static evaluation fails
+                                if let Rule::ident = arg_pair.as_rule() {
+                                    let var_name = arg_pair.as_str();
+                                    // Check if it's a known variable on the stack
+                                    if let Some(&offset) = var_offsets.get(var_name) {
+                                        // Load variable from stack and print it as integer
+                                        text_section.push_str(&format!(
+                                            "    mov rdi, [rbp-{}]\n    call _fsh_print_int\n",
+                                            offset
+                                        ));
+                                    } else {
+                                        text_section.push_str(&format!("    ; ERROR {} arg eval: variable not found\n", callee));
+                                    }
+                                } else {
+                                    text_section.push_str(&format!("    ; ERROR {} arg eval: complex expression not supported\n", callee));
+                                }
                             }
                         }
                     } else {
@@ -992,22 +1007,40 @@ fn eval_atom(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue
                 return Ok(val.clone());
             }
             
-            // Try to handle property access (obj.property)
+            // Try to handle function calls and property access (obj.property)
             let mut inner_clone = pair_clone.into_inner();
             if let Some(first_ident) = inner_clone.next() {
                 if first_ident.as_rule() == Rule::ident {
                     let obj_name = first_ident.as_str();
                     
-                    // Check if there's a property access
-                    if let Some(prop_ident) = inner_clone.next() {
-                        if prop_ident.as_rule() == Rule::ident {
-                            let prop_name = prop_ident.as_str();
-                            let prop_key = format!("{}.{}", obj_name, prop_name);
-                            
-                            // Try to find the property value
-                            if let Some(val) = vars.get(&prop_key) {
-                                return Ok(val.clone());
+                    // Check if there's a function call (parentheses) or property access
+                    if let Some(next_item) = inner_clone.next() {
+                        match next_item.as_rule() {
+                            Rule::expr => {
+                                // This is a function call like sqrt(16)
+                                let mut args = vec![eval_expr(next_item, vars)?];
+                                
+                                // Collect remaining arguments
+                                for arg_pair in inner_clone {
+                                    if arg_pair.as_rule() == Rule::expr {
+                                        args.push(eval_expr(arg_pair, vars)?);
+                                    }
+                                }
+                                
+                                // Evaluate the function
+                                return eval_math_function(obj_name, args);
                             }
+                            Rule::ident => {
+                                // This is a property access like obj.property
+                                let prop_name = next_item.as_str();
+                                let prop_key = format!("{}.{}", obj_name, prop_name);
+                                
+                                // Try to find the property value
+                                if let Some(val) = vars.get(&prop_key) {
+                                    return Ok(val.clone());
+                                }
+                            }
+                            _ => {}
                         }
                     }
                 }
