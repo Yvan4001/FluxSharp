@@ -1,10 +1,117 @@
 use clap::{Parser, Subcommand};
 use std::fs;
-use std::path::PathBuf;
-use anyhow::{Context, Result};
+use std::path::{PathBuf, Path};
+use anyhow::{Context, Result, bail};
 use std::collections::HashMap;
 use pest::Parser as PestParser;
 use pest_derive::Parser as PestDeriveParser;
+use std::time::Duration;
+use std::env;
+
+// ===== SECURITY CONSTRAINTS =====
+const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;  // 50 MB
+const MAX_ASM_OUTPUT_SIZE: usize = 100 * 1024 * 1024;  // 100 MB
+const MAX_STATEMENTS_PER_BLOCK: usize = 10_000;  // Limit statements to prevent infinite loops
+const MAX_EXPRESSION_DEPTH: usize = 100;  // Limit recursion depth
+const MAX_OPERATOR_CHAIN: usize = 1_000;  // Limit operators in one expression
+const RUN_TIMEOUT_SECS: u64 = 30;  // 30 seconds max runtime
+const RUN_MEMORY_LIMIT_MB: u64 = 512;  // 512 MB memory limit
+
+// ===== SECURITY FUNCTIONS =====
+
+/// Validate that a file size is within acceptable limits
+fn validate_file_size(path: &PathBuf) -> Result<()> {
+    let metadata = fs::metadata(path)
+        .with_context(|| format!("Cannot access file: {:?}", path))?;
+    
+    if metadata.len() > MAX_FILE_SIZE {
+        bail!(
+            "File too large: {:?} ({} bytes > {} bytes limit)",
+            path,
+            metadata.len(),
+            MAX_FILE_SIZE
+        );
+    }
+    
+    if metadata.len() == 0 {
+        bail!("File is empty: {:?}", path);
+    }
+    
+    Ok(())
+}
+
+/// Validate output path to prevent path traversal attacks
+fn validate_output_path(path: &Path) -> Result<()> {
+    // Check for ".." in path which indicates path traversal attempt
+    let path_str = path.to_string_lossy();
+    if path_str.contains("..") {
+        bail!("Path traversal detected: {:?} contains '..'", path);
+    }
+    
+    // Get the current working directory
+    let cwd = env::current_dir()
+        .context("Cannot determine current working directory")?;
+    
+    // Convert to absolute path
+    let absolute_path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cwd.join(path)
+    };
+    
+    // Try to resolve parent for new files
+    let parent = absolute_path.parent().unwrap_or(&absolute_path);
+    
+    // Check that parent exists or can be created
+    if !parent.exists() {
+        // For new files, check that the parent's parent exists
+        if let Some(grandparent) = parent.parent() {
+            if !grandparent.exists() {
+                bail!("Parent directory does not exist: {:?}", parent);
+            }
+        }
+    }
+    
+    // Check path doesn't escape current working directory (except /tmp which is allowed)
+    let normalized = match absolute_path.canonicalize() {
+        Ok(canon) => canon,
+        Err(_) => {
+            // If canonicalize fails, at least check it's under cwd
+            absolute_path.clone()
+        }
+    };
+    
+    if !normalized.starts_with(&cwd) && !normalized.starts_with("/tmp") {
+        bail!(
+            "Path traversal detected: {:?} is outside allowed directories",
+            normalized
+        );
+    }
+    
+    Ok(())
+}
+
+/// Validate that input path is safe to read
+fn validate_input_path(path: &Path) -> Result<()> {
+    // Check if path contains suspicious patterns
+    let path_str = path.to_string_lossy();
+    
+    if path_str.contains("..") {
+        bail!("Path traversal detected in input: {:?}", path);
+    }
+    
+    // Check if it's a symlink (to prevent TOCTOU attacks)
+    if path.is_symlink() {
+        bail!("Symlinks are not allowed: {:?}", path);
+    }
+    
+    // Verify it's actually a file
+    if !path.is_file() {
+        bail!("Input path is not a regular file: {:?}", path);
+    }
+    
+    Ok(())
+}
 
 // --- 1. CONFIGURATION DU PARSEUR PEST ---
 #[derive(PestDeriveParser)]
@@ -24,6 +131,7 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
         variables: HashMap::new(),
         structs: HashMap::new(),
         functions: HashMap::new(),
+        variable_types: HashMap::new(),
     };
 
     let mut data_section = String::new();
@@ -154,7 +262,8 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
                     });
 
                     if let Some(block) = body_block {
-                        text_section.push_str(&format!("global {}\n{}:\n", method_name, method_name));
+                        let method_label = format!("{}_{}", name, method_name);
+                        text_section.push_str(&format!("global {}\n{}:\n", method_label, method_label));
                         text_section.push_str("    push rbp\n    mov rbp, rsp\n");
                         compile_block(
                             block,
@@ -257,6 +366,15 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
 
     asm.push_str("section .text\n");
     asm.push_str(&text_section);
+    
+    // Security: Check output size
+    if asm.len() > MAX_ASM_OUTPUT_SIZE {
+        bail!(
+            "Generated ASM output too large: {} bytes > {} bytes limit",
+            asm.len(),
+            MAX_ASM_OUTPUT_SIZE
+        );
+    }
 
     Ok(asm)
 }
@@ -272,8 +390,19 @@ fn compile_block(
 ) -> Result<()> {
     let mut stack_offset: i32 = 0;
     let mut var_offsets: HashMap<String, i32> = HashMap::new();
+    let mut statement_count = 0;
 
     for statement in block.into_inner() {
+        // Security: Prevent infinite loops by limiting statement count
+        statement_count += 1;
+        if statement_count > MAX_STATEMENTS_PER_BLOCK {
+            bail!(
+                "Block contains too many statements: {} > {} limit",
+                statement_count,
+                MAX_STATEMENTS_PER_BLOCK
+            );
+        }
+        
         let stmt_span = statement.as_span();
         let stmt_line = content[..stmt_span.start()].lines().count();
         if let Some(src_line) = source_lines.get(stmt_line.saturating_sub(1)) {
@@ -283,8 +412,11 @@ fn compile_block(
         match statement.as_rule() {
             Rule::variable_decl => {
                 let mut decl_inner = statement.into_inner();
-                let _var_type = decl_inner.next().unwrap().as_str();
+                let var_type = decl_inner.next().unwrap().as_str().to_string();
                 let var_name = decl_inner.next().unwrap().as_str().to_string();
+
+                // Track the type of this variable (for class instances)
+                symbols.variable_types.insert(var_name.clone(), var_type.clone());
 
                 stack_offset += 8;
                 var_offsets.insert(var_name.clone(), stack_offset);
@@ -348,8 +480,23 @@ fn compile_block(
 
             Rule::function_call => {
                 let mut call_inner = statement.into_inner();
-                let callee = call_inner.next().unwrap().as_str();
-
+                let first_ident = call_inner.next().unwrap().as_str();
+                
+                // Check if this is a method call (obj.method()) or function call (func())
+                let mut method_name = None;
+                let mut object_name = None;
+                
+                // Look for another identifier (method name in obj.method() syntax)
+                let call_inner_clone: Vec<_> = call_inner.clone().collect();
+                if !call_inner_clone.is_empty() && call_inner_clone[0].as_rule() == Rule::ident {
+                    // This is a method call: obj.method()
+                    object_name = Some(first_ident.to_string());
+                    method_name = Some(call_inner.next().unwrap().as_str().to_string());
+                }
+                
+                let callee = method_name.as_deref().unwrap_or(first_ident);
+                
+                // Handle built-in functions
                 if callee == "serial_print" || callee == "print" {
                     if let Some(arg_pair) = call_inner.next() {
                         match eval_expr(arg_pair, &symbols.variables) {
@@ -394,23 +541,77 @@ fn compile_block(
                                 }
                             },
                             Err(e) => {
-                                text_section.push_str(&format!("    ; ERROR serial_print arg eval: {}\n", e));
+                                text_section.push_str(&format!("    ; ERROR {} arg eval: {}\n", callee, e));
                             }
                         }
                     } else {
-                        text_section.push_str("    ; WARNING serial_print called without argument\n");
+                        text_section.push_str(&format!("    ; WARNING {} called without argument\n", callee));
                     }
+                } else if let Some(obj) = object_name {
+                    // Method call on object - generate a call to the method
+                    // Look up the type of the object to generate the correct label
+                    let class_name = symbols.variable_types.get(&obj)
+                        .cloned()
+                        .unwrap_or_else(|| obj.clone());  // Fallback to object name if type not found
+                    let method_label = format!("{}_{}", class_name, callee);
+                    
+                    // Collect arguments
+                    let mut args_code = String::new();
+                    while let Some(arg_pair) = call_inner.next() {
+                        if let Ok(val) = eval_expr(arg_pair, &symbols.variables) {
+                            match val {
+                                FluxValue::Integer(n) => {
+                                    args_code.push_str(&format!("    mov rdi, {}\n", n));
+                                }
+                                FluxValue::Str(text) => {
+                                    let label = format!("str_{}", *unique_id);
+                                    *unique_id += 1;
+                                    let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
+                                    data_section.push_str(&format!("{}: db \"{}\", 0\n", label, escaped));
+                                    args_code.push_str(&format!("    lea rdi, [rel {}]\n", label));
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    
+                    text_section.push_str(&args_code);
+                    text_section.push_str(&format!("    call {}\n", method_label));
+                } else {
+                    // Regular function call
+                    text_section.push_str(&format!("    ; Function call: {}\n", callee));
+                    text_section.push_str(&format!("    call {}\n", callee));
                 }
             }
 
             Rule::assignment_stmt => {
                 let mut assign_inner = statement.into_inner();
-                let var_name = assign_inner.next().unwrap().as_str().to_string();
+                let first_ident = assign_inner.next().unwrap().as_str().to_string();
+                
+                // Check if this is a property assignment (obj.property = value) or variable assignment (var = value)
+                let mut property_name = None;
+                let mut object_name = None;
+                
+                // Look for another identifier (property name in obj.property syntax)
+                let assign_inner_clone: Vec<_> = assign_inner.clone().collect();
+                if !assign_inner_clone.is_empty() && assign_inner_clone[0].as_rule() == Rule::ident {
+                    // This is a property assignment: obj.property = value
+                    object_name = Some(first_ident.clone());
+                    property_name = Some(assign_inner.next().unwrap().as_str().to_string());
+                }
+                
+                let var_name = property_name.unwrap_or_else(|| first_ident.clone());
                 let _assign_op = assign_inner.next().unwrap().as_str();
                 let expr_pair = assign_inner.next().unwrap();
 
                 if let Ok(val) = eval_expr(expr_pair, &symbols.variables) {
-                    if let Some(&offset) = var_offsets.get(&var_name) {
+                    if let Some(obj) = object_name {
+                        // Property assignment - store the value associated with object.property
+                        let prop_key = format!("{}.{}", obj, var_name);
+                        symbols.variables.insert(prop_key, val);
+                        text_section.push_str(&format!("    ; Property assignment: {}.{}\n", obj, var_name));
+                    } else if let Some(&offset) = var_offsets.get(&var_name) {
+                        // Regular variable assignment
                         match val {
                             FluxValue::Integer(n) => {
                                 text_section.push_str(&format!(
@@ -532,6 +733,7 @@ struct SymbolTable {
     variables: HashMap<String, FluxValue>,
     structs: HashMap<String, Vec<(String, FluxType)>>,
     functions: HashMap<String, FunctionSignature>,
+    variable_types: HashMap<String, String>,  // Track type of each variable (e.g., "calc" -> "Calculator")
 }
 
 // --- 5. EXPRESSION EVALUATOR ---
@@ -539,8 +741,20 @@ fn eval_expr(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue
     let mut inner = pair.into_inner();
     let first = inner.next().ok_or_else(|| anyhow::anyhow!("Empty expression"))?;
     let mut result = eval_atom(first, vars)?;
+    
+    let mut operator_count = 0;
 
     while let Some(op_pair) = inner.next() {
+        // Security: Prevent long operator chains
+        operator_count += 1;
+        if operator_count > MAX_OPERATOR_CHAIN {
+            bail!(
+                "Expression has too many operators: {} > {} limit",
+                operator_count,
+                MAX_OPERATOR_CHAIN
+            );
+        }
+        
         let op = op_pair.as_str();
         let next_atom = inner.next().ok_or_else(|| anyhow::anyhow!("Missing operand after '{}'", op))?;
         let right = eval_atom(next_atom, vars)?;
@@ -719,6 +933,8 @@ fn eval_expr(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue
 }
 
 fn eval_atom(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue>) -> Result<FluxValue> {
+    // Clone pair first before consuming it
+    let pair_clone = pair.clone();
     let inner = pair.into_inner().next().unwrap();
     match inner.as_rule() {
         Rule::int_literal => {
@@ -771,9 +987,33 @@ fn eval_atom(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue
                 _ => {}
             }
             
-            vars.get(name)
-                .cloned()
-                .ok_or_else(|| anyhow::anyhow!("Undefined variable: '{}'", name))
+            // Try to get the variable
+            if let Some(val) = vars.get(name) {
+                return Ok(val.clone());
+            }
+            
+            // Try to handle property access (obj.property)
+            let mut inner_clone = pair_clone.into_inner();
+            if let Some(first_ident) = inner_clone.next() {
+                if first_ident.as_rule() == Rule::ident {
+                    let obj_name = first_ident.as_str();
+                    
+                    // Check if there's a property access
+                    if let Some(prop_ident) = inner_clone.next() {
+                        if prop_ident.as_rule() == Rule::ident {
+                            let prop_name = prop_ident.as_str();
+                            let prop_key = format!("{}.{}", obj_name, prop_name);
+                            
+                            // Try to find the property value
+                            if let Some(val) = vars.get(&prop_key) {
+                                return Ok(val.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            
+            anyhow::bail!("Undefined variable: '{}'", name)
         }
         _ => anyhow::bail!("Unexpected atom: {:?}", inner.as_rule()),
     }
@@ -862,6 +1102,12 @@ fn main() -> Result<()> {
             let mut object_files: Vec<PathBuf> = Vec::new();
 
             for input in &files_to_compile {
+                // Security: Validate input file
+                validate_input_path(&input)
+                    .with_context(|| format!("Invalid input path: {:?}", input))?;
+                validate_file_size(&input)
+                    .with_context(|| format!("Input file validation failed: {:?}", input))?;
+                
                 println!("🔍 Reading source: {:?}", input);
                 let content = fs::read_to_string(input)
                     .with_context(|| format!("Could not read file {:?}", input))?;
@@ -870,6 +1116,9 @@ fn main() -> Result<()> {
 
                 // Write .asm file
                 let asm_path = input.with_extension("asm");
+                validate_output_path(&asm_path)
+                    .with_context(|| format!("Invalid output path: {:?}", asm_path))?;
+                
                 fs::write(&asm_path, &asm_output)
                     .with_context(|| format!("Could not write {:?}", asm_path))?;
                 println!("📝 Generated ASM: {:?}", asm_path);
@@ -910,6 +1159,10 @@ fn main() -> Result<()> {
 
             // Link all .o files together
             if let Some(bin_path) = output {
+                // Security: Validate output binary path
+                validate_output_path(&bin_path)
+                    .with_context(|| format!("Invalid binary output path: {:?}", bin_path))?;
+                
                 let mut ld_cmd = std::process::Command::new("ld");
                 ld_cmd.arg("-o").arg(&bin_path);
                 
@@ -927,34 +1180,14 @@ fn main() -> Result<()> {
                     Ok(status) if status.success() => {
                         println!("✅ Linked binary: {:?}", bin_path);
                         if run {
-                            let output_run = std::process::Command::new(&bin_path)
-                                .output();
-                            match output_run {
-                                Ok(out) => {
-                                    print!("{}", String::from_utf8_lossy(&out.stdout));
-                                    eprint!("{}", String::from_utf8_lossy(&out.stderr));
-                                }
-                                Err(e) => {
-                                    eprintln!("❌ Failed to execute {}: {}", bin_path.display(), e);
-                                }
-                            }
+                            run_with_timeout(&bin_path)?;
                         }
                     }
                     Ok(_) => {
                         // Linker produced warnings but still created output
                         println!("⚠️  Linked with warnings: {:?}", bin_path);
                         if run {
-                            let output_run = std::process::Command::new(&bin_path)
-                                .output();
-                            match output_run {
-                                Ok(out) => {
-                                    print!("{}", String::from_utf8_lossy(&out.stdout));
-                                    eprint!("{}", String::from_utf8_lossy(&out.stderr));
-                                }
-                                Err(e) => {
-                                    eprintln!("❌ Failed to execute {}: {}", bin_path.display(), e);
-                                }
-                            }
+                            run_with_timeout(&bin_path)?;
                         }
                     }
                     Err(e) => {
@@ -971,6 +1204,40 @@ fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Run a binary with timeout protection
+fn run_with_timeout(bin_path: &PathBuf) -> Result<()> {
+    use std::time::Instant;
+    
+    let start = Instant::now();
+    let timeout = Duration::from_secs(RUN_TIMEOUT_SECS);
+    
+    match std::process::Command::new(bin_path)
+        .output()
+    {
+        Ok(out) => {
+            let elapsed = start.elapsed();
+            
+            // Check if execution took too long
+            if elapsed > timeout {
+                eprintln!(
+                    "⚠️  Process took longer than {} seconds ({}s)",
+                    RUN_TIMEOUT_SECS,
+                    elapsed.as_secs()
+                );
+                return Ok(());
+            }
+            
+            print!("{}", String::from_utf8_lossy(&out.stdout));
+            eprint!("{}", String::from_utf8_lossy(&out.stderr));
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to execute {}: {}", bin_path.display(), e);
+            bail!("Execution failed")
+        }
+    }
 }
 
 // --- Evaluation of math function calls ---

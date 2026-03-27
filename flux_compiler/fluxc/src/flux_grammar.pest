@@ -34,7 +34,7 @@ atom = {
     | int_literal
     | string_literal 
     | char_literal 
-    | await_keyword? ~ ident ~ ("(" ~ (expr ~ ("," ~ expr)*)? ~ ")" | ("." ~ ident ~ "()"))?
+    | await_keyword? ~ ident ~ ("(" ~ (expr ~ ("," ~ expr)*)? ~ ")" | "." ~ ident ~ ("(" ~ (expr ~ ("," ~ expr)*)? ~ ")")?)?
     | "(" ~ expr ~ ")"
 }
 
@@ -59,7 +59,8 @@ function = {
     !"class" ~ !"struct" ~ "public"? ~ "static"? ~ "private"? ~ async_keyword? ~ (type_ident | ident) ~ ident ~ "(" ~ param_list? ~ ")" ~ function_body
 }
 
-function_call = { ident ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" ~ ";" }
+// Function call: func() or obj.method()
+function_call = { ident ~ ("." ~ ident)? ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" ~ ";" }
 
 block = { "{" ~ statement* ~ "}" }
 
@@ -120,8 +121,8 @@ increment = { ident ~ ("++" | "--" | (assignment_op ~ int_literal)) }
 // Increment/Decrement statement : i++; ou i--;
 increment_stmt = { ident ~ increment_op ~ ";" }
 
-// Assignment statement : variable = expr; ou variable += expr;
-assignment_stmt = { ident ~ assignment_op ~ expr ~ ";" }
+// Assignment statement : variable = expr; ou variable += expr; ou obj.property = expr;
+assignment_stmt = { ident ~ ("." ~ ident)? ~ assignment_op ~ expr ~ ";" }
 
 // Initialisation for (sans le ; final) : int i = 0 ou CustomType var = ...
 for_init = { (type_ident | ident) ~ ident ~ ("=" ~ expr)? }

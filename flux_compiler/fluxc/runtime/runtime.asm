@@ -26,6 +26,12 @@ _fsh_print_str:
     mov rax, 1
     mov rdi, 1
     syscall
+    ; Print newline after string
+    mov rax, 1          ; write syscall
+    mov rdi, 1          ; stdout
+    mov rsi, newline
+    mov rdx, 1          ; 1 byte
+    syscall
     pop rbp
     ret
 ; --- _fsh_print_int ---
@@ -65,6 +71,12 @@ _fsh_print_int:
     mov rdx, rcx
     mov rax, 1
     mov rdi, 1
+    syscall
+    ; Print newline after integer
+    mov rax, 1          ; write syscall
+    mov rdi, 1          ; stdout
+    mov rsi, newline
+    mov rdx, 1          ; 1 byte
     syscall
     pop rbp
     ret
@@ -171,6 +183,7 @@ section .bss
     fbuffer resb 64
     dbuffer resb 64
 section .data
+    newline: db 10            ; '\n' character
     multiplier: dq 1000.0
     million: dq 1000000.0
     const_pi: dq 0x400921fb54442d18
