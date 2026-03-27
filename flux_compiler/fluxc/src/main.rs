@@ -265,6 +265,8 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
                         let method_label = format!("{}_{}", name, method_name);
                         text_section.push_str(&format!("global {}\n{}:\n", method_label, method_label));
                         text_section.push_str("    push rbp\n    mov rbp, rsp\n");
+                        let mut var_offsets = HashMap::new();
+                        let mut stack_offset = 0i32;
                         compile_block(
                             block,
                             content,
@@ -273,49 +275,27 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
                             &mut data_section,
                             &mut text_section,
                             &mut unique_id,
+                            &mut var_offsets,
+                            &mut stack_offset,
+                            true,  // is_function
                         )?;
                     }
                 }
             }
 
             Rule::function => {
+                let mut inner = pair.clone().into_inner();
+                let func_name = inner.clone().find(|p| p.as_rule() == Rule::ident)
+                    .map(|p| p.as_str().to_string())
+                    .unwrap_or_else(|| "unknown_func".to_string());
+
                 let source_span = pair.as_span();
                 let line_start = content[..source_span.start()].lines().count();
 
-                let mut inner = pair.into_inner();
-                
-                // Collecte les idents (premier = type retour ou nom, second = nom fonction)
-                let idents: Vec<_> = inner.clone().filter(|p| p.as_rule() == Rule::ident).collect();
-                
-                // Détermine le type de retour et le nom de la fonction
-                let (ret_type_str, func_name) = if idents.len() >= 2 {
-                    // Cas normal : type retour + nom fonction
-                    (idents[0].as_str(), idents[1].as_str())
-                } else if idents.len() == 1 {
-                    // Cas spécial : pas de type retour explicite, utiliser "void"
-                    ("void", idents[0].as_str())
-                } else {
-                    eprintln!("ERROR: No function name found in function definition");
-                    ("void", "unknown")
-                };
-
-                let mut params = Vec::new();
-                if let Some(param_list) = inner.clone().find(|p| p.as_rule() == Rule::param_list) {
-                    for p in param_list.into_inner() {
-                        let mut p_inner = p.into_inner();
-                        if let Some(first_elem) = p_inner.next() {
-                            let p_type = FluxType::from_str(first_elem.as_str());
-                            if let Some(second_elem) = p_inner.next() {
-                                let p_name = second_elem.as_str().to_string();
-                                params.push((p_name, p_type));
-                            }
-                        }
-                    }
-                }
-
-                symbols.functions.insert(func_name.to_string(), FunctionSignature {
-                    return_type: FluxType::from_str(ret_type_str),
-                    parameters: params.clone(),
+                // Register function in symbol table
+                symbols.functions.insert(func_name.clone(), FunctionSignature {
+                    return_type: FluxType::Void,
+                    parameters: vec![],
                 });
 
                 if let Some(block) = inner.find(|p| p.as_rule() == Rule::block) {
@@ -327,6 +307,8 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
                     text_section.push_str(&format!("global {}\n{}:\n", func_name, func_name));
                     text_section.push_str("    push rbp\n    mov rbp, rsp\n");
 
+                    let mut var_offsets = HashMap::new();
+                    let mut stack_offset = 0i32;
                     compile_block(
                         block,
                         content,
@@ -335,6 +317,9 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
                         &mut data_section,
                         &mut text_section,
                         &mut unique_id,
+                        &mut var_offsets,
+                        &mut stack_offset,
+                        true,  // is_function
                     )?;
                 }
             }
@@ -387,9 +372,10 @@ fn compile_block(
     data_section: &mut String,
     text_section: &mut String,
     unique_id: &mut usize,
+    var_offsets: &mut HashMap<String, i32>,
+    stack_offset: &mut i32,
+    is_function: bool,
 ) -> Result<()> {
-    let mut stack_offset: i32 = 0;
-    let mut var_offsets: HashMap<String, i32> = HashMap::new();
     let mut statement_count = 0;
 
     for statement in block.into_inner() {
@@ -418,8 +404,8 @@ fn compile_block(
                 // Track the type of this variable (for class instances)
                 symbols.variable_types.insert(var_name.clone(), var_type.clone());
 
-                stack_offset += 8;
-                var_offsets.insert(var_name.clone(), stack_offset);
+                *stack_offset += 8;
+                var_offsets.insert(var_name.clone(), *stack_offset);
                 text_section.push_str(&format!("    sub rsp, 8\n"));
 
                 if let Some(expr_pair) = decl_inner.find(|p| p.as_rule() == Rule::expr) {
@@ -429,7 +415,7 @@ fn compile_block(
                                 FluxValue::Integer(n) => {
                                     text_section.push_str(&format!(
                                         "    mov qword [rbp-{}], {}\n",
-                                        stack_offset, n
+                                        *stack_offset, n
                                     ));
                                 }
                                 FluxValue::Float(f) => {
@@ -440,7 +426,7 @@ fn compile_block(
                                     data_section.push_str(&format!("{}: dd 0x{:x}\n", label, float_bits));
                                     text_section.push_str(&format!(
                                         "    mov eax, [rel {}]\n    mov dword [rbp-{}], eax\n",
-                                        label, stack_offset
+                                        label, *stack_offset
                                     ));
                                 }
                                 FluxValue::Double(d) => {
@@ -451,7 +437,7 @@ fn compile_block(
                                     data_section.push_str(&format!("{}: dq 0x{:x}\n", label, double_bits));
                                     text_section.push_str(&format!(
                                         "    mov rax, [rel {}]\n    mov qword [rbp-{}], rax\n",
-                                        label, stack_offset
+                                        label, *stack_offset
                                     ));
                                 }
                                 FluxValue::Str(_) => {
@@ -463,7 +449,7 @@ fn compile_block(
                                     ));
                                     text_section.push_str(&format!(
                                         "    lea rax, [rel {}]\n    mov [rbp-{}], rax\n",
-                                        label, stack_offset
+                                        label, *stack_offset
                                     ));
                                 }
                             }
@@ -682,11 +668,126 @@ fn compile_block(
                 }
             }
 
+            Rule::if_stmt => {
+                let mut if_inner = statement.into_inner();
+                let condition_pair = if_inner.next().unwrap();
+                let then_block     = if_inner.next().unwrap();
+                let else_part      = if_inner.next();
+
+                let label_id = *unique_id;
+                *unique_id += 1;
+                let label_false = format!(".if_false_{}", label_id);
+                let label_end   = format!(".if_end_{}", label_id);
+
+                compile_condition(condition_pair, &label_false, text_section, symbols, &var_offsets)?;
+                compile_block(then_block, content, source_lines, symbols, data_section, text_section, unique_id, var_offsets, stack_offset, false)?;
+                text_section.push_str(&format!("    jmp {}\n", label_end));
+                text_section.push_str(&format!("{}:\n", label_false));
+
+                if let Some(else_pair) = else_part {
+                    let mut else_inner = else_pair.into_inner();
+                    if let Some(else_block) = else_inner.next() {
+                        match else_block.as_rule() {
+                            Rule::block => {
+                                compile_block(else_block, content, source_lines, symbols, data_section, text_section, unique_id, var_offsets, stack_offset, false)?;
+                            }
+                            Rule::if_stmt => {
+                                compile_block_from_if(else_block, content, source_lines, symbols, data_section, text_section, unique_id, var_offsets, stack_offset)?;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                text_section.push_str(&format!("{}:\n", label_end));
+            }
+
+            Rule::for_loop => {
+                let mut for_inner = statement.into_inner();
+                let for_init_pair  = for_inner.next().unwrap();
+                let condition_pair = for_inner.next().unwrap();
+                let increment_pair = for_inner.next().unwrap();
+                let body_block     = for_inner.next().unwrap();
+
+                let label_id    = *unique_id;
+                *unique_id += 1;
+                let label_start = format!(".for_start_{}", label_id);
+                let label_end   = format!(".for_end_{}", label_id);
+
+                // Init: type ident = expr
+                let mut init_inner = for_init_pair.into_inner();
+                let _type_str = init_inner.next().unwrap().as_str();
+                let var_name  = init_inner.next().unwrap().as_str().to_string();
+                let init_expr = init_inner.next();
+
+                // Allocate variable on stack
+                *stack_offset += 8;
+                var_offsets.insert(var_name.clone(), *stack_offset);
+                text_section.push_str("    sub rsp, 8\n");
+
+                if let Some(expr_pair) = init_expr {
+                    if let Ok(val) = eval_expr(expr_pair, &symbols.variables) {
+                        if let FluxValue::Integer(n) = val {
+                            text_section.push_str(&format!("    mov rax, {}\n", n));
+                            text_section.push_str(&format!("    mov qword [rbp-{}], rax\n", *stack_offset));
+                        }
+                    }
+                }
+
+                text_section.push_str(&format!("{}:\n", label_start));
+                compile_condition(condition_pair, &label_end, text_section, symbols, &var_offsets)?;
+
+                compile_block(body_block, content, source_lines, symbols, data_section, text_section, unique_id, var_offsets, stack_offset, false)?;
+
+                // Increment
+                let inc_str = increment_pair.as_str();
+                if inc_str.contains("++") {
+                    let var = inc_str.replace("++", "").trim().to_string();
+                    if let Some(&offset) = var_offsets.get(&var) {
+                        text_section.push_str(&format!("    inc qword [rbp-{}]\n", offset));
+                    }
+                } else if inc_str.contains("--") {
+                    let var = inc_str.replace("--", "").trim().to_string();
+                    if let Some(&offset) = var_offsets.get(&var) {
+                        text_section.push_str(&format!("    dec qword [rbp-{}]\n", offset));
+                    }
+                }
+
+                text_section.push_str(&format!("    jmp {}\n", label_start));
+                text_section.push_str(&format!("{}:\n", label_end));
+            }
+
+            Rule::while_loop => {
+                let mut while_inner = statement.into_inner();
+                let condition_pair  = while_inner.next().unwrap();
+                let body_block      = while_inner.next().unwrap();
+
+                let label_id    = *unique_id;
+                *unique_id += 1;
+                let label_start = format!(".while_start_{}", label_id);
+                let label_end   = format!(".while_end_{}", label_id);
+
+                text_section.push_str(&format!("{}:\n", label_start));
+                compile_condition(condition_pair, &label_end, text_section, symbols, &var_offsets)?;
+                compile_block(body_block, content, source_lines, symbols, data_section, text_section, unique_id, var_offsets, stack_offset, false)?;
+                text_section.push_str(&format!("    jmp {}\n", label_start));
+                text_section.push_str(&format!("{}:\n", label_end));
+            }
+
+            Rule::break_stmt => {
+                text_section.push_str("    ; break (not yet fully implemented)\n");
+            }
+
+            Rule::continue_stmt => {
+                text_section.push_str("    ; continue (not yet fully implemented)\n");
+            }
+
             _ => {}
         }
     }
 
-    text_section.push_str("\n    mov rsp, rbp\n    pop rbp\n    ret\n\n");
+    if is_function {
+        text_section.push_str("\n    mov rsp, rbp\n    pop rbp\n    ret\n\n");
+    }
     Ok(())
 }
 
@@ -755,7 +856,7 @@ struct SymbolTable {
 fn eval_expr(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue>) -> Result<FluxValue> {
     let mut inner = pair.into_inner();
     let first = inner.next().ok_or_else(|| anyhow::anyhow!("Empty expression"))?;
-    let mut result = eval_atom(first, vars)?;
+    let mut result = eval_postfix(first, vars)?;
     
     let mut operator_count = 0;
 
@@ -771,8 +872,8 @@ fn eval_expr(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue
         }
         
         let op = op_pair.as_str();
-        let next_atom = inner.next().ok_or_else(|| anyhow::anyhow!("Missing operand after '{}'", op))?;
-        let right = eval_atom(next_atom, vars)?;
+        let next_postfix = inner.next().ok_or_else(|| anyhow::anyhow!("Missing operand after '{}'", op))?;
+        let right = eval_postfix(next_postfix, vars)?;
 
         result = match (&result, &right) {
             (FluxValue::Integer(l), FluxValue::Integer(r)) => {
@@ -947,108 +1048,86 @@ fn eval_expr(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue
     Ok(result)
 }
 
-fn eval_atom(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue>) -> Result<FluxValue> {
-    // Clone pair first before consuming it
-    let pair_clone = pair.clone();
-    let inner = pair.into_inner().next().unwrap();
+fn eval_postfix(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue>) -> Result<FluxValue> {
+    // postfix = { primary ~ ("(" ~ args ~ ")" | "[" ~ expr ~ "]" | "." ~ ident)* }
+    let mut inner = pair.into_inner();
+    let primary = inner.next().ok_or_else(|| anyhow::anyhow!("Empty postfix"))?;
+    let base = eval_primary(primary, vars)?;
+
+    // Pour l'instant on ignore les suffixes (appels, indexation, member access)
+    // car eval_* est utilisé au compile-time pour les valeurs statiques
+    Ok(base)
+}
+
+fn eval_primary(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue>) -> Result<FluxValue> {
+    // primary = { bool_literal | float_literal | double_literal | int_literal
+    //           | string_literal | char_literal | "(" ~ expr ~ ")" | ident }
+    let inner = pair.into_inner().next()
+        .ok_or_else(|| anyhow::anyhow!("Empty primary"))?;
+
     match inner.as_rule() {
-        Rule::int_literal => {
-            let n: i64 = inner.as_str().parse()
-                .with_context(|| format!("Invalid integer: {}", inner.as_str()))?;
-            Ok(FluxValue::Integer(n))
+        Rule::bool_literal => {
+            match inner.as_str() {
+                "true"  => Ok(FluxValue::Integer(1)),
+                "false" => Ok(FluxValue::Integer(0)),
+                _       => bail!("Invalid bool literal"),
+            }
         }
         Rule::float_literal => {
             let raw = inner.as_str();
-            // Remove 'f' or 'F' suffix
-            let num_str = &raw[..raw.len() - 1];
-            let n: f32 = num_str.parse()
+            let n: f32 = raw[..raw.len()-1].parse()
                 .with_context(|| format!("Invalid float: {}", raw))?;
             Ok(FluxValue::Float(n))
         }
         Rule::double_literal => {
-            let raw = inner.as_str();
-            let n: f64 = raw.parse()
-                .with_context(|| format!("Invalid double: {}", raw))?;
+            let n: f64 = inner.as_str().parse()
+                .with_context(|| format!("Invalid double: {}", inner.as_str()))?;
             Ok(FluxValue::Double(n))
+        }
+        Rule::int_literal => {
+            let raw = inner.as_str();
+            let n: i64 = if raw.starts_with("0x") || raw.starts_with("0X") {
+                i64::from_str_radix(&raw[2..], 16)?
+            } else if raw.starts_with("0b") || raw.starts_with("0B") {
+                i64::from_str_radix(&raw[2..], 2)?
+            } else if raw.starts_with("0o") || raw.starts_with("0O") {
+                i64::from_str_radix(&raw[2..], 8)?
+            } else {
+                raw.parse()?
+            };
+            Ok(FluxValue::Integer(n))
         }
         Rule::string_literal => {
             let raw = inner.as_str();
-            // Remove surrounding quotes
-            let content = &raw[1..raw.len() - 1];
-            Ok(FluxValue::Str(content.to_string()))
+            let content = raw[1..raw.len()-1].to_string();
+            Ok(FluxValue::Str(content))
         }
         Rule::char_literal => {
             let raw = inner.as_str();
-            // Remove surrounding single quotes — treat as variable name reference
-            let content = &raw[1..raw.len() - 1];
-            // If it's a known variable, return its value
-            if let Some(val) = vars.get(content) {
-                Ok(val.clone())
-            } else {
-                // Otherwise treat as a character/string
-                Ok(FluxValue::Str(content.to_string()))
-            }
+            let content = raw[1..raw.len()-1].to_string();
+            Ok(FluxValue::Str(content))
+        }
+        Rule::expr => {
+            // Parenthesized expression: "(" ~ expr ~ ")"
+            eval_expr(inner, vars)
         }
         Rule::ident => {
             let name = inner.as_str();
-            
-            // Check for predefined math constants
             match name {
-                "PI" => return Ok(FluxValue::Double(std::f64::consts::PI)),
-                "E" => return Ok(FluxValue::Double(std::f64::consts::E)),
-                "LN2" => return Ok(FluxValue::Double(std::f64::consts::LN_2)),
-                "LN10" => return Ok(FluxValue::Double(std::f64::consts::LN_10)),
+                "PI"    => return Ok(FluxValue::Double(std::f64::consts::PI)),
+                "E"     => return Ok(FluxValue::Double(std::f64::consts::E)),
+                "LN2"   => return Ok(FluxValue::Double(std::f64::consts::LN_2)),
+                "LN10"  => return Ok(FluxValue::Double(std::f64::consts::LN_10)),
                 "SQRT2" => return Ok(FluxValue::Double(std::f64::consts::SQRT_2)),
+                "true"  => return Ok(FluxValue::Integer(1)),
+                "false" => return Ok(FluxValue::Integer(0)),
                 _ => {}
             }
-            
-            // Try to get the variable
-            if let Some(val) = vars.get(name) {
-                return Ok(val.clone());
-            }
-            
-            // Try to handle function calls and property access (obj.property)
-            let mut inner_clone = pair_clone.into_inner();
-            if let Some(first_ident) = inner_clone.next() {
-                if first_ident.as_rule() == Rule::ident {
-                    let obj_name = first_ident.as_str();
-                    
-                    // Check if there's a function call (parentheses) or property access
-                    if let Some(next_item) = inner_clone.next() {
-                        match next_item.as_rule() {
-                            Rule::expr => {
-                                // This is a function call like sqrt(16)
-                                let mut args = vec![eval_expr(next_item, vars)?];
-                                
-                                // Collect remaining arguments
-                                for arg_pair in inner_clone {
-                                    if arg_pair.as_rule() == Rule::expr {
-                                        args.push(eval_expr(arg_pair, vars)?);
-                                    }
-                                }
-                                
-                                // Evaluate the function
-                                return eval_math_function(obj_name, args);
-                            }
-                            Rule::ident => {
-                                // This is a property access like obj.property
-                                let prop_name = next_item.as_str();
-                                let prop_key = format!("{}.{}", obj_name, prop_name);
-                                
-                                // Try to find the property value
-                                if let Some(val) = vars.get(&prop_key) {
-                                    return Ok(val.clone());
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-            
-            anyhow::bail!("Undefined variable: '{}'", name)
+            vars.get(name)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("Undefined variable: '{}'", name))
         }
-        _ => anyhow::bail!("Unexpected atom: {:?}", inner.as_rule()),
+        _ => bail!("Unexpected primary rule: {:?}", inner.as_rule()),
     }
 }
 
@@ -1408,4 +1487,223 @@ fn eval_math_function(func_name: &str, args: Vec<FluxValue>) -> Result<FluxValue
     }
 }
 
+fn compile_condition(
+    condition_pair: pest::iterators::Pair<Rule>,
+    label_false: &str,
+    text_section: &mut String,
+    symbols: &SymbolTable,
+    var_offsets: &HashMap<String, i32>,
+) -> Result<()> {
+    // condition = { "(" ~ condition ~ ")" | expr }
+    let inner = condition_pair.into_inner().next().unwrap();
 
+    match inner.as_rule() {
+        Rule::condition => {
+            // Parenthèses — récursion
+            compile_condition(inner, label_false, text_section, symbols, var_offsets)?;
+        }
+        Rule::expr => {
+            // Essayer d'évaluer statiquement d'abord
+            if let Ok(val) = eval_expr(inner.clone(), &symbols.variables) {
+                match val {
+                    FluxValue::Integer(0) => {
+                        text_section.push_str(&format!("    jmp {}\n", label_false));
+                    }
+                    FluxValue::Integer(_) => {
+                        // Toujours vrai — pas de saut
+                    }
+                    _ => {}
+                }
+            } else {
+                // Expression dynamique — générer du vrai code de comparaison
+                let expr_str = inner.as_str();
+                
+                // Try to extract comparison operands: "var op value"
+                let mut found_comparison = false;
+                
+                // Check for common comparison operators
+                if expr_str.contains("<") && !expr_str.contains("<=") {
+                    let parts: Vec<&str> = expr_str.split('<').collect();
+                    if parts.len() == 2 {
+                        let var_name = parts[0].trim();
+                        let value_str = parts[1].trim();
+                        if let Some(&offset) = var_offsets.get(var_name) {
+                            if let Ok(val) = value_str.parse::<i64>() {
+                                text_section.push_str(&format!("    mov rax, [rbp-{}]\n", offset));
+                                text_section.push_str(&format!("    cmp rax, {}\n", val));
+                                text_section.push_str(&format!("    jge {}\n", label_false));
+                                found_comparison = true;
+                            }
+                        }
+                    }
+                } else if expr_str.contains(">") && !expr_str.contains(">=") {
+                    let parts: Vec<&str> = expr_str.split('>').collect();
+                    if parts.len() == 2 {
+                        let var_name = parts[0].trim();
+                        let value_str = parts[1].trim();
+                        if let Some(&offset) = var_offsets.get(var_name) {
+                            if let Ok(val) = value_str.parse::<i64>() {
+                                text_section.push_str(&format!("    mov rax, [rbp-{}]\n", offset));
+                                text_section.push_str(&format!("    cmp rax, {}\n", val));
+                                text_section.push_str(&format!("    jle {}\n", label_false));
+                                found_comparison = true;
+                            }
+                        }
+                    }
+                } else if expr_str.contains("==") {
+                    let parts: Vec<&str> = expr_str.split("==").collect();
+                    if parts.len() == 2 {
+                        let var_name = parts[0].trim();
+                        let value_str = parts[1].trim();
+                        if let Some(&offset) = var_offsets.get(var_name) {
+                            if let Ok(val) = value_str.parse::<i64>() {
+                                text_section.push_str(&format!("    mov rax, [rbp-{}]\n", offset));
+                                text_section.push_str(&format!("    cmp rax, {}\n", val));
+                                text_section.push_str(&format!("    jne {}\n", label_false));
+                                found_comparison = true;
+                            }
+                        }
+                    }
+                } else if expr_str.contains("!=") {
+                    let parts: Vec<&str> = expr_str.split("!=").collect();
+                    if parts.len() == 2 {
+                        let var_name = parts[0].trim();
+                        let value_str = parts[1].trim();
+                        if let Some(&offset) = var_offsets.get(var_name) {
+                            if let Ok(val) = value_str.parse::<i64>() {
+                                text_section.push_str(&format!("    mov rax, [rbp-{}]\n", offset));
+                                text_section.push_str(&format!("    cmp rax, {}\n", val));
+                                text_section.push_str(&format!("    je {}\n", label_false));
+                                found_comparison = true;
+                            }
+                        }
+                    }
+                } else if expr_str.contains("<=") {
+                    let parts: Vec<&str> = expr_str.split("<=").collect();
+                    if parts.len() == 2 {
+                        let var_name = parts[0].trim();
+                        let value_str = parts[1].trim();
+                        if let Some(&offset) = var_offsets.get(var_name) {
+                            if let Ok(val) = value_str.parse::<i64>() {
+                                text_section.push_str(&format!("    mov rax, [rbp-{}]\n", offset));
+                                text_section.push_str(&format!("    cmp rax, {}\n", val));
+                                text_section.push_str(&format!("    jg {}\n", label_false));
+                                found_comparison = true;
+                            }
+                        }
+                    }
+                } else if expr_str.contains(">=") {
+                    let parts: Vec<&str> = expr_str.split(">=").collect();
+                    if parts.len() == 2 {
+                        let var_name = parts[0].trim();
+                        let value_str = parts[1].trim();
+                        if let Some(&offset) = var_offsets.get(var_name) {
+                            if let Ok(val) = value_str.parse::<i64>() {
+                                text_section.push_str(&format!("    mov rax, [rbp-{}]\n", offset));
+                                text_section.push_str(&format!("    cmp rax, {}\n", val));
+                                text_section.push_str(&format!("    jl {}\n", label_false));
+                                found_comparison = true;
+                            }
+                        }
+                    }
+                }
+                
+                if !found_comparison {
+                    // Fallback: generic condition evaluation
+                    text_section.push_str(&format!("    ; condition: {}\n", expr_str.trim()));
+                    text_section.push_str(&format!("    test rax, rax\n    jz {}\n", label_false));
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn compile_block_from_if(
+    if_pair: pest::iterators::Pair<Rule>,
+    content: &str,
+    source_lines: &[&str],
+    symbols: &mut SymbolTable,
+    data_section: &mut String,
+    text_section: &mut String,
+    unique_id: &mut usize,
+    var_offsets: &mut HashMap<String, i32>,
+    stack_offset: &mut i32,
+) -> Result<()> {
+    // Wrapper pour compiler un if_stmt standalone dans un else
+    let mut inner = if_pair.into_inner();
+    let cond = inner.next().unwrap();
+    let then = inner.next().unwrap();
+    let else_ = inner.next();
+
+    let id = *unique_id; *unique_id += 1;
+    let lf = format!(".if_false_{}", id);
+    let le = format!(".if_end_{}", id);
+
+    compile_condition(cond, &lf, text_section, symbols, &var_offsets)?;
+    compile_block(then, content, source_lines, symbols, data_section, text_section, unique_id, var_offsets, stack_offset, false)?;
+    text_section.push_str(&format!("    jmp {}\n{}:\n", le, lf));
+    if let Some(ep) = else_ {
+        if let Some(eb) = ep.into_inner().next() {
+            if eb.as_rule() == Rule::block {
+                compile_block(eb, content, source_lines, symbols, data_section, text_section, unique_id, var_offsets, stack_offset, false)?;
+            }
+        }
+    }
+    text_section.push_str(&format!("{}:\n", le));
+    Ok(())
+}
+
+fn apply_op(left: FluxValue, op: &str, right: FluxValue) -> Result<FluxValue> {
+    match (&left, &right) {
+        (FluxValue::Integer(l), FluxValue::Integer(r)) => Ok(FluxValue::Integer(match op {
+            "+"  => l + r,
+            "-"  => l - r,
+            "*"  => l * r,
+            "/"  => { if *r == 0 { bail!("Division by zero") } l / r }
+            "%"  => { if *r == 0 { bail!("Modulo by zero") } l % r }
+            "&"  => l & r,
+            "|"  => l | r,
+            "^"  => l ^ r,
+            "<<" => l << r,
+            ">>" => l >> r,
+            "==" => if l == r { 1 } else { 0 },
+            "!=" => if l != r { 1 } else { 0 },
+            "<"  => if l < r  { 1 } else { 0 },
+            "<=" => if l <= r { 1 } else { 0 },
+            ">"  => if l > r  { 1 } else { 0 },
+            ">=" => if l >= r { 1 } else { 0 },
+            "&&" => if *l != 0 && *r != 0 { 1 } else { 0 },
+            "||" => if *l != 0 || *r != 0 { 1 } else { 0 },
+            _    => bail!("Unknown operator: {}", op),
+        })),
+        (FluxValue::Str(l), FluxValue::Str(r)) => {
+            if op == "+" { Ok(FluxValue::Str(format!("{}{}", l, r))) }
+            else { bail!("Unsupported operator {} on strings", op) }
+        }
+        (FluxValue::Str(l), FluxValue::Integer(r)) => {
+            if op == "+" { Ok(FluxValue::Str(format!("{}{}", l, r))) }
+            else { bail!("Unsupported operator {} between string and int", op) }
+        }
+        (FluxValue::Integer(l), FluxValue::Str(r)) => {
+            if op == "+" { Ok(FluxValue::Str(format!("{}{}", l, r))) }
+            else { bail!("Unsupported operator {} between int and string", op) }
+        }
+        (FluxValue::Float(l), FluxValue::Float(r)) => Ok(FluxValue::Float(match op {
+            "+" => l + r, "-" => l - r, "*" => l * r,
+            "/" => { if *r == 0.0 { bail!("Division by zero") } l / r }
+            _   => bail!("Unknown float operator: {}", op),
+        })),
+        (FluxValue::Double(l), FluxValue::Double(r)) => Ok(FluxValue::Double(match op {
+            "+" => l + r, "-" => l - r, "*" => l * r,
+            "/" => { if *r == 0.0 { bail!("Division by zero") } l / r }
+            _   => bail!("Unknown double operator: {}", op),
+        })),
+        (FluxValue::Integer(l), FluxValue::Float(r))  => Ok(FluxValue::Float(*l as f32 + r)),
+        (FluxValue::Float(l),   FluxValue::Integer(r)) => Ok(FluxValue::Float(l + *r as f32)),
+        (FluxValue::Integer(l), FluxValue::Double(r)) => Ok(FluxValue::Double(*l as f64 + r)),
+        (FluxValue::Double(l),  FluxValue::Integer(r)) => Ok(FluxValue::Double(l + *r as f64)),
+        _ => bail!("Arithmetic on incompatible types"),
+    }
+}
