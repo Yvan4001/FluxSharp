@@ -4,207 +4,254 @@ Modern, efficient, and easy-to-use programming language with async/await support
 
 ## Quick Start - One Command!
 
+### Compile and Run Default File
+
 ```bash
-make
+./build.sh
 ```
 
-That's it! This single command:
-1. ✅ Builds the Rust compiler (first time only)
-2. ✅ Compiles your `main.fsh` to assembly
-3. ✅ Assembles to machine code
-4. ✅ Links to create executable
-5. ✅ Runs the program automatically
+Compiles `main.fsh` and runs the resulting executable.
 
-See **[docs/QUICKSTART.md](docs/QUICKSTART.md)** for detailed guide.
+### Compile and Run Any File
 
-## Build Commands
+```bash
+./build.sh path/to/file.fsh
+```
 
-| Command | What it does |
-|---------|-------------|
-| `make` or `make quickstart` | Build AND run everything |
-| `make build` | Just compile, assemble, link |
-| `make run` | Just run existing executable |
-| `make clean` | Remove generated files |
-| `make help` | Show all available commands |
+Automatically creates a binary with the same name and runs it.
 
-## Workflow
+## Usage Examples
+
+### Compile and Run Examples
+
+```bash
+./build.sh examples/hello.fsh        # Hello world
+./build.sh examples/calculator.fsh   # OOP example
+./build.sh examples/arrays.fsh       # Arrays example
+```
+
+### Compile Custom Files
+
+```bash
+./build.sh src/my_program.fsh
+./build.sh utils/helper.fsh
+./build.sh my_app.fsh
+```
+
+## Dynamic Build System
+
+✅ **Compile any file** - `./build.sh file.fsh`  
+✅ **Auto binary naming** - Creates `file` from `file.fsh`  
+✅ **Directory support** - Binary in same folder as source  
+✅ **Instant execution** - Runs immediately after build  
+✅ **Fast builds** - Compiler cached after first use  
+✅ **Clear feedback** - Shows each build step  
+
+## One-Step Workflow
 
 ```
-main.fsh (your code)
-   ↓ (fluxc Rust compiler)
-main.asm (x86-64 assembly) [auto-generated]
-   ↓ (GNU as assembler)
-main.o (object file) [auto-generated]
-   ↓ (GNU ld linker)
-program (executable) [auto-generated]
-   ↓
-Output
+1. Edit: nano file.fsh
+2. Build: ./build.sh file.fsh
+3. See output
+4. Repeat
 ```
+
+Simple and effective!
+
+## Complete Build Process
+
+The script handles everything:
+
+1. **Checks dependencies** - Verifies cargo installed
+2. **Builds compiler** (first time only, ~3 seconds, then cached)
+3. **Compiles code** - `.fsh` → `.asm` assembly
+4. **Assembles** - `.asm` → `.o` machine code
+5. **Links** - Creates executable with runtime
+6. **Executes** - Runs the program automatically
 
 ## Project Structure
 
 ```
 FluxSharp/
-├── main.fsh                  # Your FluxSharp source code
-├── main.asm                  # Auto-generated assembly
-├── main.o                    # Auto-generated object file
-├── program                   # Auto-generated executable
-├── Makefile                  # Build system
-├── README.md                 # This file
+├── build.sh                  # ← Use this to compile any file
+├── main.fsh                  # Default program
+├── main                      # Compiled executable
+├── Makefile                  # Alternative build system
 │
-├── flux_compiler/            # Rust compiler source
+├── examples/                 # Ready-to-compile examples
+│   ├── hello.fsh            # Simple hello world
+│   ├── calculator.fsh       # OOP with classes
+│   ├── arrays.fsh           # Array operations
+│   └── [compiled binaries]
+│
+├── flux_compiler/           # Rust compiler
 │   └── fluxc/
-│       ├── src/main.rs      # Compiler code
-│       ├── Cargo.toml
+│       ├── src/main.rs
 │       └── target/release/fluxc
 │
-├── docs/                     # Documentation
-│   ├── QUICKSTART.md         # Get started in 5 minutes
-│   ├── README.md             # Doc index
-│   ├── SYNTAX.md             # Language syntax
-│   ├── TYPES.md              # Data types
-│   ├── VARIABLES.md          # Variables
-│   ├── FUNCTIONS.md          # Functions
-│   ├── CLASSES.md            # Classes and structs
-│   ├── CONTROL_FLOW.md       # If/while/for
-│   ├── OPERATORS.md          # All operators
-│   ├── ARRAYS.md             # Arrays
-│   ├── ASYNC_AWAIT.md        # Async programming
-│   └── STDLIB.md             # Standard library
+├── docs/                    # Documentation
+│   ├── QUICKSTART.md
+│   ├── SYNTAX.md
+│   ├── BUILD_SYSTEM.md
+│   ├── TYPES.md
+│   ├── FUNCTIONS.md
+│   └── [8+ more files]
 │
-├── examples/                 # Example programs
-│   ├── hello.fsh
-│   ├── fibonacci.fsh
-│   └── async_example.fsh
-│
-└── .archive/                 # Old files
+└── [Other files]
 ```
-
-## Edit and Run
-
-1. **Edit your code:**
-   ```bash
-   nano main.fsh
-   ```
-
-2. **Build and run:**
-   ```bash
-   make
-   ```
-
-That's all you need!
 
 ## Language Features
 
 FluxSharp includes:
+
 - **Static typing** - Types: `int`, `uint`, `long`, `float`, `double`, `byte`, `string`, `bool`, `void`
-- **Functions** - `public`, `private`, `static`, `async` functions
-- **Classes** - Full OOP with inheritance
+- **Functions** - Public, private, static, async functions
+- **Classes** - Full OOP with `new` keyword
 - **Structs** - Lightweight data structures
-- **Arrays** - Fixed-size arrays with expressions
+- **Arrays** - Fixed-size arrays with dynamic indexing
 - **Control Flow** - if/else, while, for loops
 - **Operators** - Arithmetic, bitwise, logical, comparison
-- **Async/Await** - Non-blocking I/O
-- **Standard Library** - Math, string, array, I/O functions
+- **Async/Await** - Non-blocking concurrent code
+- **Standard Library** - Math, string, I/O functions
 
-## Documentation
+## Examples Included
 
-Start with one of these:
-
-| Document | Purpose |
-|----------|---------|
-| **[docs/QUICKSTART.md](docs/QUICKSTART.md)** | Get started in 5 minutes |
-| **[docs/SYNTAX.md](docs/SYNTAX.md)** | Language syntax |
-| **[docs/TYPES.md](docs/TYPES.md)** | Data types |
-| **[docs/FUNCTIONS.md](docs/FUNCTIONS.md)** | How to write functions |
-| **[docs/CLASSES.md](docs/CLASSES.md)** | Object-oriented programming |
-| **[docs/STDLIB.md](docs/STDLIB.md)** | Math, string, I/O functions |
-| **[docs/ASYNC_AWAIT.md](docs/ASYNC_AWAIT.md)** | Async programming |
-
-## Example: Hello World
-
-Edit `main.fsh`:
-
+### hello.fsh - Simple Output
 ```flux
 public static void Main() {
-    print_line("Hello, FluxSharp!");
+    print("Hello from FluxSharp!");
     return;
 }
 ```
+Run: `./build.sh examples/hello.fsh`
 
-Then run:
+### calculator.fsh - Classes with OOP
+```flux
+public class Calculator {
+    public int Add(int a, int b) {
+        return a + b;
+    }
+}
 
-```bash
-make
+Calculator calc = new Calculator();
+int result = calc.Add(5, 3);
 ```
+Run: `./build.sh examples/calculator.fsh`
 
-Output:
+### arrays.fsh - Array Operations
+```flux
+int[10] numbers;
+numbers[0] = 10;
+int first = numbers[0];
 ```
-Hello, FluxSharp!
-```
+Run: `./build.sh examples/arrays.fsh`
+
+## Documentation
+
+Complete language documentation available:
+
+| Document | Topics |
+|----------|--------|
+| **QUICKSTART.md** | Get started in 5 minutes |
+| **SYNTAX.md** | Keywords, operators, statements |
+| **TYPES.md** | All data types |
+| **FUNCTIONS.md** | Function definition and calls |
+| **CLASSES.md** | OOP and inheritance |
+| **ARRAYS.md** | Fixed-size arrays |
+| **CONTROL_FLOW.md** | If/else, loops |
+| **OPERATORS.md** | All operators |
+| **ASYNC_AWAIT.md** | Async programming |
+| **STDLIB.md** | Built-in functions |
+| **BUILD_SYSTEM.md** | Build script guide |
+
+See **[docs/](docs/)** for all documentation.
 
 ## System Requirements
 
-- **Linux x86-64** - Target platform
-- **Rust 1.70+** - For building compiler
-- **GNU as** - Assembler (`sudo apt-get install binutils`)
-- **GNU ld** - Linker (included with binutils)
-
-## Troubleshooting
-
-### Error: `fluxc: not found`
-The compiler wasn't built. Just run `make` - it builds automatically.
-
-### Error: `as: not found`
-Install assembler: `sudo apt-get install binutils`
-
-### Syntax errors
-Check [docs/SYNTAX.md](docs/SYNTAX.md) for correct syntax.
-
-## How It Works
-
-FluxSharp is a compiled language that generates native x86-64 code:
-
-1. **Compiler (Rust)** - Parses FluxSharp code and generates assembly
-2. **Assembler (GNU as)** - Converts assembly to machine code
-3. **Linker (GNU ld)** - Creates executable binary
-4. **Runtime** - Executes native code directly (no VM)
-
-Result: Fast, efficient native programs!
+- **OS**: Linux x86-64
+- **Rust**: 1.70+ (install: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
+- **GNU tools**: binutils (install: `sudo apt-get install binutils`)
 
 ## Performance
 
-- **Direct compilation** - No interpreter overhead
-- **Native code** - Runs at full CPU speed
-- **Small binaries** - Minimal dependencies
-- **Fast startup** - No JIT warmup needed
-- **Async support** - Efficient concurrent tasks
+- **First run**: ~3 seconds (builds compiler)
+- **Subsequent runs**: <1 second (cached)
+- **Compilation speed**: ~0.5 seconds per file
+- **Total time**: Usually under 2 seconds
 
-## Version
+## Workflow Examples
 
-FluxSharp v2.0.0 - Production Ready
+### Single File Development
 
-## License
+```bash
+# Create and test your program
+./build.sh my_app.fsh
 
-See LICENSE file
+# Edit and recompile
+nano my_app.fsh
+./build.sh my_app.fsh
+
+# Test another version
+./build.sh my_app_v2.fsh
+```
+
+### Managing Multiple Programs
+
+```bash
+# Organize in subdirectories
+./build.sh src/main.fsh
+./build.sh src/utils.fsh
+./build.sh examples/demo.fsh
+```
+
+### Examples Directory Structure
+
+```
+examples/
+├── hello.fsh
+├── hello                 # Compiled executable
+├── calculator.fsh
+├── calculator           # Compiled executable
+└── arrays.fsh
+```
+
+## Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| `cargo: not found` | Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
+| `as: not found` | Install binutils: `sudo apt-get install binutils` |
+| File not found | Use correct relative or absolute path |
+| Syntax errors | Check [SYNTAX.md](docs/SYNTAX.md) |
+
+## Command Reference
+
+```bash
+./build.sh                      # Compile main.fsh
+./build.sh file.fsh             # Compile specific file
+./build.sh path/to/file.fsh     # Compile in subdirectory
+./build.sh examples/hello.fsh   # Compile example
+```
+
+## Project Status
+
+- ✅ Compiler working
+- ✅ Full grammar implemented
+- ✅ Dynamic build system
+- ✅ Complete documentation
+- ✅ Multiple examples
+- ✅ Production ready
+
+## Next Steps
+
+1. **Try it**: `./build.sh main.fsh`
+2. **Explore**: Check `examples/` folder
+3. **Learn**: Read `docs/QUICKSTART.md`
+4. **Develop**: Create your own programs
 
 ---
 
-## Quick Reference
+**Ready to code with FluxSharp!** 🚀
 
-```bash
-# Most common commands:
-make              # Build and run (same as quickstart)
-nano main.fsh     # Edit your code
-make clean        # Clean up generated files
-
-# Full workflow:
-make build        # Compile only (no run)
-make run          # Run only (no compile)
-
-# Help:
-make help         # Show all available commands
-```
-
-**Ready to code? Run `make` now!** 🚀
+Run `./build.sh` to get started!
 

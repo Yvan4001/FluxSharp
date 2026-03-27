@@ -1,16 +1,43 @@
 #!/bin/bash
 # FluxSharp Complete Build and Run Script
+# Usage: ./build.sh [path/to/file.fsh]
+# Default: ./build.sh (uses main.fsh)
 
 set -e
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPILER_ROOT_DIR="$PROJECT_DIR/flux_compiler"
 FLUXC_BIN="$COMPILER_ROOT_DIR/target/release/fluxc"
-FSH_SOURCE="$PROJECT_DIR/main.fsh"
-EXECUTABLE="$PROJECT_DIR/program"
+
+# Get input file - default to main.fsh if not provided
+if [ $# -eq 0 ]; then
+    FSH_SOURCE="$PROJECT_DIR/main.fsh"
+else
+    FSH_SOURCE="$1"
+fi
+
+# Resolve to absolute path
+if [[ ! "$FSH_SOURCE" = /* ]]; then
+    FSH_SOURCE="$PROJECT_DIR/$FSH_SOURCE"
+fi
+
+# Check if file exists
+if [ ! -f "$FSH_SOURCE" ]; then
+    echo "❌ Error: File not found: $FSH_SOURCE"
+    exit 1
+fi
+
+# Generate output binary name from input file
+# Remove .fsh extension and use the basename
+BASENAME=$(basename "$FSH_SOURCE" .fsh)
+DIRNAME=$(dirname "$FSH_SOURCE")
+EXECUTABLE="$DIRNAME/$BASENAME"
 
 echo "🚀 FluxSharp - Complete Build and Run"
 echo "======================================="
+echo ""
+echo "📄 Input:  $FSH_SOURCE"
+echo "📦 Output: $EXECUTABLE"
 echo ""
 
 # Check dependencies
@@ -39,13 +66,11 @@ echo ""
 
 # Compile FluxSharp directly to executable
 echo "📝 Step 2: Compiling FluxSharp → Executable"
-echo "   Input:  $FSH_SOURCE"
-echo "   Output: $EXECUTABLE"
 if ! "$FLUXC_BIN" compile "$FSH_SOURCE" -o "$EXECUTABLE" 2>&1; then
     echo "❌ Compilation failed"
     exit 1
 fi
-echo "✅ Executable created"
+echo "✅ Executable created: $EXECUTABLE"
 echo ""
 
 # Execute
