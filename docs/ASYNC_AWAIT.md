@@ -1,10 +1,15 @@
 # FluxSharp Async/Await
 
-Asynchronous programming with async functions and await expressions.
+Asynchronous programming with async functions and await expressions for non-blocking I/O operations.
+
+**What are async functions?**
+Async functions allow your program to perform long-running operations (like network requests or file I/O) without blocking the entire program. The caller can continue doing other work while the async operation completes.
 
 ## Async Functions
 
 ### Basic Async Function
+
+Declare an async function with the `async` keyword. The function can call `await` to wait for asynchronous operations to complete.
 
 ```flux
 async public void FetchData() {
@@ -14,6 +19,8 @@ async public void FetchData() {
 ```
 
 ### Async Function with Return Type
+
+Async functions can return values just like regular functions. Use the return type to specify what the function produces.
 
 ```flux
 async public int ProcessData(string url) {
@@ -25,6 +32,8 @@ async public int ProcessData(string url) {
 
 ### Async Function with Parameters
 
+Pass parameters to async functions to customize their behavior. Parameters work the same as in regular functions.
+
 ```flux
 async public void Download(string url, int timeout) {
     byte[1024] buffer;
@@ -35,7 +44,11 @@ async public void Download(string url, int timeout) {
 
 ## Await Expression
 
+The `await` keyword pauses execution and waits for an async operation to complete before continuing.
+
 ### Basic Await
+
+Wait for an async function to complete:
 
 ```flux
 async public void Main() {
@@ -45,6 +58,8 @@ async public void Main() {
 ```
 
 ### Await in Assignment
+
+Store the result of an async operation in a variable:
 
 ```flux
 async public void Process() {
@@ -56,6 +71,8 @@ async public void Process() {
 
 ### Multiple Awaits
 
+Execute several async operations sequentially. Each await waits for the previous one to complete:
+
 ```flux
 async public void FetchAll() {
     string data1 = await GetData("url1");
@@ -66,6 +83,8 @@ async public void FetchAll() {
 ```
 
 ### Await in Conditions
+
+Use await inside conditional blocks to perform async operations only when certain conditions are met:
 
 ```flux
 async public void ConditionalAwait(string url) {

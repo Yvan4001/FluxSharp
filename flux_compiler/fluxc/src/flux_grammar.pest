@@ -15,145 +15,132 @@ bool_literal = @{ "true" | "false" }
 string_literal = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
 char_literal = @{ "'" ~ (!"'" ~ ANY)* ~ "'" }
 
-
 // Types primitifs
 type_ident = { "int" | "uint" | "long" | "float" | "double" | "ulong" | "byte" | "string" | "bool" | "void" }
 
-// Keywords pour async/await
+// Keywords
 async_keyword = { "async" }
 await_keyword = { "await" }
+new_keyword = { "new" }
 
+// Operators
 arith_op = { "+" | "-" | "*" | "/" | "%" }
 bitwise_op = { "&" | "|" | "^" | "<<" | ">>" }
 logical_op = { "&&" | "||" }
+comparison_op = { "<=" | ">=" | "<" | ">" | "==" | "!=" }
+assignment_op = { "=" | "+=" | "-=" }
+increment_op = { "++" | "--" }
 
-atom = { 
+// Expressions - simplified for clarity
+primary = {
     bool_literal
     | float_literal
     | double_literal
     | int_literal
-    | string_literal 
-    | char_literal 
-    | await_keyword? ~ ident ~ ("(" ~ (expr ~ ("," ~ expr)*)? ~ ")" | "." ~ ident ~ ("(" ~ (expr ~ ("," ~ expr)*)? ~ ")")?)?
+    | string_literal
+    | char_literal
     | "(" ~ expr ~ ")"
+    | ident
 }
 
-// Expression d'affectation (supporte arithmétique et bitwise)
-expr = { atom ~ ((arith_op | bitwise_op) ~ atom)* }
+postfix = {
+    primary ~ (
+        "(" ~ (expr ~ ("," ~ expr)*)? ~ ")"    // Function call
+        | "[" ~ expr ~ "]"                      // Array access
+        | "." ~ ident                           // Member access
+    )*
+}
 
-// Déclaration de constante : "const int MAX = 42;"
+expr = { postfix ~ ((arith_op | bitwise_op | logical_op | comparison_op) ~ postfix)* }
+
+new_expr = {
+    new_keyword ~ ident ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")"
+}
+
+// Déclaration de constante
 const_decl = { "const" ~ type_ident ~ ident ~ "=" ~ expr ~ ";" }
 
-
-// Déclaration de variable : "int x = 42;" ou "CustomType x = ..."
-variable_decl = { (type_ident | ident) ~ ident ~ ("=" ~ expr)? ~ ";" }
+// Déclaration de variable
+variable_decl = { 
+    (type_ident | ident) ~ ident ~ ("=" ~ (new_expr | expr))? ~ ";"
+}
 
 parameter = { (type_ident | ident) ~ ident }
-
 param_list = { parameter ~ ("," ~ parameter)* }
 
-// Une fonction simple : "public void Main() { ... }"
 function_body = _{ "=>" ~ (block | statement) | block }
 
 function = {
     !"class" ~ !"struct" ~ "public"? ~ "static"? ~ "private"? ~ async_keyword? ~ (type_ident | ident) ~ ident ~ "(" ~ param_list? ~ ")" ~ function_body
 }
 
-// Function call: func() or obj.method()
-function_call = { ident ~ ("." ~ ident)? ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" ~ ";" }
-
 block = { "{" ~ statement* ~ "}" }
 
-// Expressions pour la taille : "80 * 25" ou "512"
+// Size expression
 size_expr = { int_literal ~ (("*" | "+") ~ int_literal)* }
 
-// Syntaxe : byte[80 * 25] vga_mem; ou CustomType[128] items;
+// Array declaration
 array_decl = { (type_ident | ident) ~ "[" ~ size_expr ~ "]" ~ ident ~ ";" }
 
-// Accès : vga_mem[index] = 65;
-array_access = { ident ~ "[" ~ (int_literal | ident) ~ "]" ~ "=" ~ expr ~ ";" }
+// Array access statement
+array_access = { ident ~ "[" ~ expr ~ "]" ~ "=" ~ expr ~ ";" }
 
-
-// Attributs : [Align(4096)] ou [Packed]
+// Attribute
 attribute = { "[" ~ ident ~ ("(" ~ int_literal ~ ")")? ~ "]" }
 
-// Définition d'un champ de struct : int Limit; ou WindowManager manager; ou Task[128] tasks;
+// Struct field
 struct_field = { (type_ident | ident) ~ ("[" ~ size_expr ~ "]")? ~ ident ~ ";" }
 
-// Définition de la struct : [Align(8)] struct GdtEntry { ... } ou public struct Name { ... }
 struct_def = {
     attribute? ~ "public"? ~ "static"? ~ "private"? ~ "struct" ~ ident ~ "{" ~ struct_field* ~ "}"
 }
 
-// Propriété de classe : public int value; ou private string name; ou private AsyncTask[128] tasks;
+// Class definition
 class_property = { ("public" | "private")? ~ (type_ident | ident) ~ ("[" ~ size_expr ~ "]")? ~ ident ~ ("=" ~ expr)? ~ ";" }
-
-// Méthode de classe : public void method() => { ... }
 class_method = { ("public" | "private")? ~ async_keyword? ~ (type_ident | ident) ~ ident ~ "(" ~ param_list? ~ ")" ~ function_body }
-
-// Constructeur de classe : public ClassName(...) => { ... }
 class_constructor = { "public" ~ ident ~ "(" ~ param_list? ~ ")" ~ function_body }
 
-// Définition de la classe : [Align(8)] class ClassName : BaseClass { ... } ou public class Name { ... }
 class_def = {
     attribute? ~ "public"? ~ "static"? ~ "private"? ~ "class" ~ ident ~ (":" ~ ident)? ~ "{" ~ (class_property | class_method | class_constructor)* ~ "}"
 }
 
-// Comparaisons : i < 2000, i == 0, etc.
-comparison_op = { "<=" | ">=" | "<" | ">" | "==" | "!=" }
-
-// Opérandes pour condition : ident, int_literal, appel de fonction, ou expression entre parenthèses
-operand = { ident ~ ("(" ~ (expr ~ ("," ~ expr)*)? ~ ")" | ("." ~ ident ~ "()")?)? | int_literal | bool_literal | "(" ~ expr ~ ")" }
-
-// Condition avec support des parenthèses, comparaisons, booléens et simples opérandes
-condition = { 
+// Condition 
+condition = {
     "(" ~ condition ~ ")"
-    | operand ~ comparison_op ~ operand ~ (logical_op ~ condition)?
-    | operand ~ logical_op ~ condition
-    | operand
+    | expr
 }
 
-// Incrémentation : i++, i--, i += 1
-assignment_op = { "=" | "+=" | "-=" }
-increment_op = { "++" | "--" }
-increment = { ident ~ ("++" | "--" | (assignment_op ~ int_literal)) }
-
-// Increment/Decrement statement : i++; ou i--;
+increment = { ident ~ ("++" | "--" | (assignment_op ~ expr)) }
 increment_stmt = { ident ~ increment_op ~ ";" }
 
-// Assignment statement : variable = expr; ou variable += expr; ou obj.property = expr;
-assignment_stmt = { ident ~ ("." ~ ident)? ~ assignment_op ~ expr ~ ";" }
+assignment_stmt = { ident ~ ("." ~ ident)? ~ ("["~ expr ~ "]")? ~ assignment_op ~ expr ~ ";" }
 
-// Initialisation for (sans le ; final) : int i = 0 ou CustomType var = ...
 for_init = { (type_ident | ident) ~ ident ~ ("=" ~ expr)? }
 
-// La boucle For : for(int i = 0; i < 2000; i++) { ... }
 for_loop = {
     "for" ~ "(" ~ for_init ~ ";" ~ condition ~ ";" ~ increment ~ ")" ~ block
 }
 
-// La boucle While : while(condition) { ... }
 while_loop = {
     "while" ~ "(" ~ condition ~ ")" ~ block
 }
 
-// If statement : if(condition) { ... } else { ... }
 else_part = { "else" ~ (if_stmt | block) }
 if_stmt = {
     "if" ~ "(" ~ condition ~ ")" ~ block ~ else_part?
 }
 
-// Return statement : return; ou return expr;
 return_stmt = { "return" ~ expr? ~ ";" }
-
-// Break and continue statements
 break_stmt = { "break" ~ ";" }
 continue_stmt = { "continue" ~ ";" }
 
-// Await statement : await function_call;
+// Function call statement
+function_call = { ident ~ ("." ~ ident)? ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" ~ ";" }
+
+// Await statement
 await_stmt = { await_keyword ~ ident ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" ~ ";" }
 
-// On met à jour la règle 'statement' pour autoriser les boucles, les constantes, les if, les return, les await et les assignations
+// Statement rule
 statement = _{
     for_loop
     | while_loop
@@ -171,5 +158,5 @@ statement = _{
     | function_call
 }
 
-// Racine du fichier - tester struct et class AVANT function pour éviter l'ambiguïté
+// File root
 file = { SOI ~ (const_decl | struct_def | class_def | function)* ~ EOI }

@@ -4,6 +4,7 @@ Complete technical reference based on actual grammar.
 
 ## Navigation
 
+- **[QUICKSTART.md](QUICKSTART.md)** - Get started in 5 minutes ⭐ START HERE
 - **[SYNTAX.md](SYNTAX.md)** - Core syntax and language structure
 - **[TYPES.md](TYPES.md)** - Primitive and composite types
 - **[VARIABLES.md](VARIABLES.md)** - Variable and constant declaration
@@ -13,6 +14,7 @@ Complete technical reference based on actual grammar.
 - **[OPERATORS.md](OPERATORS.md)** - Operators and expressions
 - **[ARRAYS.md](ARRAYS.md)** - Array declaration and access
 - **[ASYNC_AWAIT.md](ASYNC_AWAIT.md)** - Async functions and await
+- **[STDLIB.md](STDLIB.md)** - Standard library and math functions
 
 ## Language Overview
 

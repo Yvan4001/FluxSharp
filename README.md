@@ -1,136 +1,210 @@
 # FluxSharp Programming Language
+
 Modern, efficient, and easy-to-use programming language with async/await support.
-## Quick Start
-### Build and Run
+
+## Quick Start - One Command!
+
 ```bash
-make              # Compile, assemble, and run (default)
-make build        # Just build the executable
-make run          # Just run the executable
-make clean        # Remove generated files
+make
 ```
-### Workflow
+
+That's it! This single command:
+1. ✅ Builds the Rust compiler (first time only)
+2. ✅ Compiles your `main.fsh` to assembly
+3. ✅ Assembles to machine code
+4. ✅ Links to create executable
+5. ✅ Runs the program automatically
+
+See **[docs/QUICKSTART.md](docs/QUICKSTART.md)** for detailed guide.
+
+## Build Commands
+
+| Command | What it does |
+|---------|-------------|
+| `make` or `make quickstart` | Build AND run everything |
+| `make build` | Just compile, assemble, link |
+| `make run` | Just run existing executable |
+| `make clean` | Remove generated files |
+| `make help` | Show all available commands |
+
+## Workflow
+
 ```
-main.fsh (FluxSharp source)
+main.fsh (your code)
    ↓ (fluxc Rust compiler)
 main.asm (x86-64 assembly) [auto-generated]
    ↓ (GNU as assembler)
 main.o (object file) [auto-generated]
    ↓ (GNU ld linker)
-program (executable binary) [auto-generated]
+program (executable) [auto-generated]
+   ↓
+Output
 ```
+
 ## Project Structure
+
 ```
 FluxSharp/
-├── main.fsh              # Your FluxSharp source code
-├── main.asm              # Generated assembly (auto-created)
-├── main.o                # Generated object file (auto-created)
-├── program               # Compiled executable (auto-created)
-├── Makefile              # Build system
-├── README.md             # This file
+├── main.fsh                  # Your FluxSharp source code
+├── main.asm                  # Auto-generated assembly
+├── main.o                    # Auto-generated object file
+├── program                   # Auto-generated executable
+├── Makefile                  # Build system
+├── README.md                 # This file
 │
-├── flux_compiler/        # Rust compiler implementation
+├── flux_compiler/            # Rust compiler source
 │   └── fluxc/
-│       ├── src/
-│       │   └── main.rs   # Compiler entry point
+│       ├── src/main.rs      # Compiler code
 │       ├── Cargo.toml
 │       └── target/release/fluxc
 │
-├── docs/                 # Documentation
-│   ├── GETTING_STARTED.md
-│   ├── LANGUAGE_GUIDE.md
-│   ├── ASYNC_AWAIT.md
-│   └── API_REFERENCE.md
+├── docs/                     # Documentation
+│   ├── QUICKSTART.md         # Get started in 5 minutes
+│   ├── README.md             # Doc index
+│   ├── SYNTAX.md             # Language syntax
+│   ├── TYPES.md              # Data types
+│   ├── VARIABLES.md          # Variables
+│   ├── FUNCTIONS.md          # Functions
+│   ├── CLASSES.md            # Classes and structs
+│   ├── CONTROL_FLOW.md       # If/while/for
+│   ├── OPERATORS.md          # All operators
+│   ├── ARRAYS.md             # Arrays
+│   ├── ASYNC_AWAIT.md        # Async programming
+│   └── STDLIB.md             # Standard library
 │
-├── examples/             # Example programs
+├── examples/                 # Example programs
 │   ├── hello.fsh
 │   ├── fibonacci.fsh
 │   └── async_example.fsh
 │
-└── .archive/             # Old documentation (archive)
+└── .archive/                 # Old files
 ```
-## Key Files
-### `main.fsh`
-Your FluxSharp source code. Edit this to write your program:
-```flux
-fn main() {
-    print("Hello, FluxSharp!");
-    return 0;
-}
-```
-### `main.asm` (Auto-generated)
-x86-64 assembly code created by the Rust compiler.
-- Do not edit manually - regenerated on each build
-- AT&T syntax - GNU as compatible
-### `program` (Auto-generated)
-The executable binary - run it with `./program`
-## Usage Examples
-### Run Hello World (already set up)
-```bash
-make
-```
-### Edit Your Code
-```bash
-nano main.fsh
-make
-```
-### Clean Rebuild
-```bash
-make clean
-make build
-```
-### Full Clean (including compiler)
-```bash
-make distclean
-```
+
+## Edit and Run
+
+1. **Edit your code:**
+   ```bash
+   nano main.fsh
+   ```
+
+2. **Build and run:**
+   ```bash
+   make
+   ```
+
+That's all you need!
+
 ## Language Features
-### Functions
-```flux
-fn add(a: int, b: int) -> int {
-    return a + b;
-}
-```
-### Data Types
-- `int` - 64-bit integer
-- `float` - 64-bit floating point
-- `string` - Text string
-- `bool` - Boolean
-### Control Flow
-```flux
-if condition {
-    ; code
-} else {
-    ; code
-}
-while condition {
-    ; code
-}
-```
-### Async/Await
-```flux
-async fn fetch(url: string) -> string {
-    let response = await http_get(url);
-    return response;
-}
-```
+
+FluxSharp includes:
+- **Static typing** - Types: `int`, `uint`, `long`, `float`, `double`, `byte`, `string`, `bool`, `void`
+- **Functions** - `public`, `private`, `static`, `async` functions
+- **Classes** - Full OOP with inheritance
+- **Structs** - Lightweight data structures
+- **Arrays** - Fixed-size arrays with expressions
+- **Control Flow** - if/else, while, for loops
+- **Operators** - Arithmetic, bitwise, logical, comparison
+- **Async/Await** - Non-blocking I/O
+- **Standard Library** - Math, string, array, I/O functions
+
 ## Documentation
-- docs/GETTING_STARTED.md - Tutorial for beginners
-- docs/LANGUAGE_GUIDE.md - Complete language reference
-- docs/ASYNC_AWAIT.md - Async/await guide
-- docs/API_REFERENCE.md - Standard library
+
+Start with one of these:
+
+| Document | Purpose |
+|----------|---------|
+| **[docs/QUICKSTART.md](docs/QUICKSTART.md)** | Get started in 5 minutes |
+| **[docs/SYNTAX.md](docs/SYNTAX.md)** | Language syntax |
+| **[docs/TYPES.md](docs/TYPES.md)** | Data types |
+| **[docs/FUNCTIONS.md](docs/FUNCTIONS.md)** | How to write functions |
+| **[docs/CLASSES.md](docs/CLASSES.md)** | Object-oriented programming |
+| **[docs/STDLIB.md](docs/STDLIB.md)** | Math, string, I/O functions |
+| **[docs/ASYNC_AWAIT.md](docs/ASYNC_AWAIT.md)** | Async programming |
+
+## Example: Hello World
+
+Edit `main.fsh`:
+
+```flux
+public static void Main() {
+    print_line("Hello, FluxSharp!");
+    return;
+}
+```
+
+Then run:
+
+```bash
+make
+```
+
+Output:
+```
+Hello, FluxSharp!
+```
+
 ## System Requirements
-- Rust: 1.70+ (for rebuilding compiler)
-- GNU as: Assembler
-- GNU ld: Linker
-- Linux x86-64: Target platform
+
+- **Linux x86-64** - Target platform
+- **Rust 1.70+** - For building compiler
+- **GNU as** - Assembler (`sudo apt-get install binutils`)
+- **GNU ld** - Linker (included with binutils)
+
 ## Troubleshooting
-| Problem | Solution |
-|---------|----------|
-| `fluxc: not found` | Run `cd flux_compiler && cargo build --release` |
-| `as: not found` | Run `sudo apt-get install binutils` |
-| Assembly syntax errors | Check `main.fsh` syntax |
-## License
-See LICENSE file
+
+### Error: `fluxc: not found`
+The compiler wasn't built. Just run `make` - it builds automatically.
+
+### Error: `as: not found`
+Install assembler: `sudo apt-get install binutils`
+
+### Syntax errors
+Check [docs/SYNTAX.md](docs/SYNTAX.md) for correct syntax.
+
+## How It Works
+
+FluxSharp is a compiled language that generates native x86-64 code:
+
+1. **Compiler (Rust)** - Parses FluxSharp code and generates assembly
+2. **Assembler (GNU as)** - Converts assembly to machine code
+3. **Linker (GNU ld)** - Creates executable binary
+4. **Runtime** - Executes native code directly (no VM)
+
+Result: Fast, efficient native programs!
+
+## Performance
+
+- **Direct compilation** - No interpreter overhead
+- **Native code** - Runs at full CPU speed
+- **Small binaries** - Minimal dependencies
+- **Fast startup** - No JIT warmup needed
+- **Async support** - Efficient concurrent tasks
+
 ## Version
-FluxSharp v2.0.0
+
+FluxSharp v2.0.0 - Production Ready
+
+## License
+
+See LICENSE file
+
 ---
-**Ready to start? Run `make` to build and execute!**
+
+## Quick Reference
+
+```bash
+# Most common commands:
+make              # Build and run (same as quickstart)
+nano main.fsh     # Edit your code
+make clean        # Clean up generated files
+
+# Full workflow:
+make build        # Compile only (no run)
+make run          # Run only (no compile)
+
+# Help:
+make help         # Show all available commands
+```
+
+**Ready to code? Run `make` now!** 🚀
+

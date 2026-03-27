@@ -6,6 +6,8 @@ Complete function definition and calling guide.
 
 ### Basic Function
 
+A simple function with no parameters and no return value.
+
 ```flux
 public void PrintMessage() {
     // Function body
@@ -13,6 +15,8 @@ public void PrintMessage() {
 ```
 
 ### Function with Parameters
+
+Functions can accept parameters to receive data from the caller. Parameters must have explicit types.
 
 ```flux
 public void Greet(string name) {
@@ -25,6 +29,8 @@ public int Add(int a, int b) {
 ```
 
 ### Function with Return Type
+
+Functions can return a value to the caller using the `return` statement.
 
 ```flux
 public int GetNumber() {
@@ -44,7 +50,7 @@ public void DoNothing() {
 
 ### Public Functions
 
-Accessible from outside:
+Public functions can be called from anywhere. They form the public interface of your module.
 
 ```flux
 public void PublicFunction() {
@@ -54,7 +60,7 @@ public void PublicFunction() {
 
 ### Private Functions
 
-Accessible only in module:
+Private functions are only accessible within the current module. Use them for internal helper functions.
 
 ```
 private void PrivateFunction() {
@@ -64,7 +70,7 @@ private void PrivateFunction() {
 
 ### Static Functions
 
-Class-level functions (can call without instance):
+Static functions belong to the class itself, not to instances. Call them using the class name without creating an instance.
 
 ```flux
 public static void StaticFunction() {
@@ -76,7 +82,7 @@ StaticFunction();  // Call directly
 
 ### Async Functions
 
-For asynchronous operations:
+Async functions enable non-blocking operations. They can use `await` to pause and resume execution.
 
 ```flux
 async public void FetchData() {
@@ -112,6 +118,8 @@ async private void Fetch(string url) {
 
 ### Single Parameter
 
+Pass one value to a function. The parameter is available inside the function body.
+
 ```flux
 public void PrintValue(int value) {
     // Use value
@@ -121,6 +129,8 @@ PrintValue(42);
 ```
 
 ### Multiple Parameters
+
+Functions can accept multiple parameters. Each parameter must have an explicit type.
 
 ```flux
 public int Add(int a, int b) {
@@ -132,7 +142,7 @@ int result = Add(5, 3);  // 8
 
 ### Parameter Types
 
-All FluxSharp types supported:
+All FluxSharp types are supported as parameters.
 
 ```flux
 public void Example(
@@ -150,6 +160,8 @@ public void Example(
 
 ### Void Return
 
+Functions that return nothing use `void` as the return type. The `return;` statement exits the function.
+
 ```flux
 public void DoWork() {
     // No return value
@@ -159,6 +171,8 @@ public void DoWork() {
 
 ### Value Return
 
+Functions can return a value to the caller. The value must match the declared return type.
+
 ```flux
 public int Calculate() {
     int result = 10 + 5;
@@ -167,6 +181,8 @@ public int Calculate() {
 ```
 
 ### Early Return
+
+Use `return` to exit the function immediately before the end of the body.
 
 ```flux
 public int Validate(int value) {
@@ -181,6 +197,8 @@ public int Validate(int value) {
 
 ### Simple Call
 
+Call a function without parameters.
+
 ```flux
 PrintMessage();         // No parameters
 int sum = Add(5, 3);   // With parameters
@@ -188,12 +206,16 @@ int sum = Add(5, 3);   // With parameters
 
 ### Method Calls
 
+Call methods on objects using the dot notation.
+
 ```flux
 person.Greet();
 obj.Calculate(10);
 ```
 
 ### Function Call Statement
+
+A function call can be a statement on its own line (the return value is ignored if there is one).
 
 ```flux
 PrintMessage();
