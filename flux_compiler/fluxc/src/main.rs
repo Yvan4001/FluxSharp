@@ -300,6 +300,28 @@ fn compile_block(
                                         stack_offset, n
                                     ));
                                 }
+                                FluxValue::Float(f) => {
+                                    // Store float value in data section
+                                    let label = format!("float_{}", *unique_id);
+                                    *unique_id += 1;
+                                    let float_bits = f.to_bits();
+                                    data_section.push_str(&format!("{}: dd 0x{:x}\n", label, float_bits));
+                                    text_section.push_str(&format!(
+                                        "    mov eax, [rel {}]\n    mov dword [rbp-{}], eax\n",
+                                        label, stack_offset
+                                    ));
+                                }
+                                FluxValue::Double(d) => {
+                                    // Store double value in data section
+                                    let label = format!("double_{}", *unique_id);
+                                    *unique_id += 1;
+                                    let double_bits = d.to_bits();
+                                    data_section.push_str(&format!("{}: dq 0x{:x}\n", label, double_bits));
+                                    text_section.push_str(&format!(
+                                        "    mov rax, [rel {}]\n    mov qword [rbp-{}], rax\n",
+                                        label, stack_offset
+                                    ));
+                                }
                                 FluxValue::Str(_) => {
                                     let label = format!("str_{}", *unique_id);
                                     *unique_id += 1;
@@ -348,6 +370,28 @@ fn compile_block(
                                         n
                                     ));
                                 }
+                                FluxValue::Float(f) => {
+                                    // Generate a string literal with the float value
+                                    let label = format!("float_{}", *unique_id);
+                                    *unique_id += 1;
+                                    let formatted = format!("{}", f);
+                                    data_section.push_str(&format!("{}: db \"{}\", 0\n", label, formatted));
+                                    text_section.push_str(&format!(
+                                        "    lea rdi, [rel {}]\n    call _fsh_print_str\n",
+                                        label
+                                    ));
+                                }
+                                FluxValue::Double(d) => {
+                                    // Generate a string literal with the double value
+                                    let label = format!("double_{}", *unique_id);
+                                    *unique_id += 1;
+                                    let formatted = format!("{}", d);
+                                    data_section.push_str(&format!("{}: db \"{}\", 0\n", label, formatted));
+                                    text_section.push_str(&format!(
+                                        "    lea rdi, [rel {}]\n    call _fsh_print_str\n",
+                                        label
+                                    ));
+                                }
                             },
                             Err(e) => {
                                 text_section.push_str(&format!("    ; ERROR serial_print arg eval: {}\n", e));
@@ -372,6 +416,26 @@ fn compile_block(
                                 text_section.push_str(&format!(
                                     "    mov qword [rbp-{}], {}\n",
                                     offset, n
+                                ));
+                            }
+                            FluxValue::Float(f) => {
+                                let label = format!("float_{}", *unique_id);
+                                *unique_id += 1;
+                                let float_bits = f.to_bits();
+                                data_section.push_str(&format!("{}: dd 0x{:x}\n", label, float_bits));
+                                text_section.push_str(&format!(
+                                    "    mov eax, [rel {}]\n    mov dword [rbp-{}], eax\n",
+                                    label, offset
+                                ));
+                            }
+                            FluxValue::Double(d) => {
+                                let label = format!("double_{}", *unique_id);
+                                *unique_id += 1;
+                                let double_bits = d.to_bits();
+                                data_section.push_str(&format!("{}: dq 0x{:x}\n", label, double_bits));
+                                text_section.push_str(&format!(
+                                    "    mov rax, [rel {}]\n    mov qword [rbp-{}], rax\n",
+                                    label, offset
                                 ));
                             }
                             FluxValue::Str(_) => {
@@ -413,7 +477,7 @@ fn compile_block(
 // --- 2. SYSTÈME DE TYPES ---
 #[derive(Debug, Clone, PartialEq)]
 pub enum FluxType {
-    Int, UInt, Long, ULong, Byte, String, Bool, Void,
+    Int, UInt, Long, ULong, Byte, String, Bool, Void, Float, Double,
     Pointer(Box<FluxType>),
     Struct(String),
 }
@@ -429,6 +493,8 @@ impl FluxType {
             "string" => FluxType::String,
             "bool" => FluxType::Bool,
             "void" => FluxType::Void,
+            "float" => FluxType::Float,
+            "double" => FluxType::Double,
             _ => FluxType::Struct(s.to_string()),
         }
     }
@@ -438,6 +504,8 @@ impl FluxType {
 #[derive(Debug, Clone)]
 pub enum FluxValue {
     Integer(i64),
+    Float(f32),
+    Double(f64),
     Str(String),
 }
 
@@ -445,6 +513,8 @@ impl std::fmt::Display for FluxValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             FluxValue::Integer(n) => write!(f, "{}", n),
+            FluxValue::Float(n) => write!(f, "{}", n),
+            FluxValue::Double(n) => write!(f, "{}", n),
             FluxValue::Str(s) => write!(f, "{}", s),
         }
     }
@@ -492,6 +562,134 @@ fn eval_expr(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue
                     _ => anyhow::bail!("Unknown operator: {}", op),
                 })
             }
+            (FluxValue::Float(l), FluxValue::Float(r)) => {
+                FluxValue::Float(match op {
+                    "+" => l + r,
+                    "-" => l - r,
+                    "*" => l * r,
+                    "/" => {
+                        if *r == 0.0 { anyhow::bail!("Division by zero"); }
+                        l / r
+                    },
+                    "%" => {
+                        if *r == 0.0 { anyhow::bail!("Modulo by zero"); }
+                        l % r
+                    },
+                    _ => anyhow::bail!("Unknown operator: {}", op),
+                })
+            }
+            (FluxValue::Double(l), FluxValue::Double(r)) => {
+                FluxValue::Double(match op {
+                    "+" => l + r,
+                    "-" => l - r,
+                    "*" => l * r,
+                    "/" => {
+                        if *r == 0.0 { anyhow::bail!("Division by zero"); }
+                        l / r
+                    },
+                    "%" => {
+                        if *r == 0.0 { anyhow::bail!("Modulo by zero"); }
+                        l % r
+                    },
+                    _ => anyhow::bail!("Unknown operator: {}", op),
+                })
+            }
+            (FluxValue::Integer(l), FluxValue::Float(r)) => {
+                FluxValue::Float(match op {
+                    "+" => *l as f32 + r,
+                    "-" => *l as f32 - r,
+                    "*" => *l as f32 * r,
+                    "/" => {
+                        if *r == 0.0 { anyhow::bail!("Division by zero"); }
+                        *l as f32 / r
+                    },
+                    "%" => {
+                        if *r == 0.0 { anyhow::bail!("Modulo by zero"); }
+                        (*l as f32) % r
+                    },
+                    _ => anyhow::bail!("Unknown operator: {}", op),
+                })
+            }
+            (FluxValue::Float(l), FluxValue::Integer(r)) => {
+                FluxValue::Float(match op {
+                    "+" => l + *r as f32,
+                    "-" => l - *r as f32,
+                    "*" => l * *r as f32,
+                    "/" => {
+                        if *r == 0 { anyhow::bail!("Division by zero"); }
+                        l / *r as f32
+                    },
+                    "%" => {
+                        if *r == 0 { anyhow::bail!("Modulo by zero"); }
+                        l % (*r as f32)
+                    },
+                    _ => anyhow::bail!("Unknown operator: {}", op),
+                })
+            }
+            (FluxValue::Integer(l), FluxValue::Double(r)) => {
+                FluxValue::Double(match op {
+                    "+" => *l as f64 + r,
+                    "-" => *l as f64 - r,
+                    "*" => *l as f64 * r,
+                    "/" => {
+                        if *r == 0.0 { anyhow::bail!("Division by zero"); }
+                        *l as f64 / r
+                    },
+                    "%" => {
+                        if *r == 0.0 { anyhow::bail!("Modulo by zero"); }
+                        (*l as f64) % r
+                    },
+                    _ => anyhow::bail!("Unknown operator: {}", op),
+                })
+            }
+            (FluxValue::Double(l), FluxValue::Integer(r)) => {
+                FluxValue::Double(match op {
+                    "+" => l + *r as f64,
+                    "-" => l - *r as f64,
+                    "*" => l * *r as f64,
+                    "/" => {
+                        if *r == 0 { anyhow::bail!("Division by zero"); }
+                        l / *r as f64
+                    },
+                    "%" => {
+                        if *r == 0 { anyhow::bail!("Modulo by zero"); }
+                        l % (*r as f64)
+                    },
+                    _ => anyhow::bail!("Unknown operator: {}", op),
+                })
+            }
+            (FluxValue::Float(l), FluxValue::Double(r)) => {
+                FluxValue::Double(match op {
+                    "+" => *l as f64 + r,
+                    "-" => *l as f64 - r,
+                    "*" => *l as f64 * r,
+                    "/" => {
+                        if *r == 0.0 { anyhow::bail!("Division by zero"); }
+                        *l as f64 / r
+                    },
+                    "%" => {
+                        if *r == 0.0 { anyhow::bail!("Modulo by zero"); }
+                        (*l as f64) % r
+                    },
+                    _ => anyhow::bail!("Unknown operator: {}", op),
+                })
+            }
+            (FluxValue::Double(l), FluxValue::Float(r)) => {
+                FluxValue::Double(match op {
+                    "+" => l + *r as f64,
+                    "-" => l - *r as f64,
+                    "*" => l * *r as f64,
+                    "/" => {
+                        if *r == 0.0 { anyhow::bail!("Division by zero"); }
+                        l / *r as f64
+                    },
+                    "%" => {
+                        if *r == 0.0 { anyhow::bail!("Modulo by zero"); }
+                        l % (*r as f64)
+                    },
+                    _ => anyhow::bail!("Unknown operator: {}", op),
+                })
+            }
             (FluxValue::Str(l), FluxValue::Str(r)) => {
                 if op == "+" {
                     FluxValue::Str(format!("{}{}", l, r))
@@ -513,7 +711,7 @@ fn eval_expr(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue
                     anyhow::bail!("Unsupported operator {} between integer and string", op)
                 }
             }
-            _ => anyhow::bail!("Arithmetic on non-integer/non-string values"),
+            _ => anyhow::bail!("Arithmetic on non-numeric values"),
         };
     }
 
@@ -527,6 +725,20 @@ fn eval_atom(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue
             let n: i64 = inner.as_str().parse()
                 .with_context(|| format!("Invalid integer: {}", inner.as_str()))?;
             Ok(FluxValue::Integer(n))
+        }
+        Rule::float_literal => {
+            let raw = inner.as_str();
+            // Remove 'f' or 'F' suffix
+            let num_str = &raw[..raw.len() - 1];
+            let n: f32 = num_str.parse()
+                .with_context(|| format!("Invalid float: {}", raw))?;
+            Ok(FluxValue::Float(n))
+        }
+        Rule::double_literal => {
+            let raw = inner.as_str();
+            let n: f64 = raw.parse()
+                .with_context(|| format!("Invalid double: {}", raw))?;
+            Ok(FluxValue::Double(n))
         }
         Rule::string_literal => {
             let raw = inner.as_str();
@@ -548,6 +760,17 @@ fn eval_atom(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue
         }
         Rule::ident => {
             let name = inner.as_str();
+            
+            // Check for predefined math constants
+            match name {
+                "PI" => return Ok(FluxValue::Double(std::f64::consts::PI)),
+                "E" => return Ok(FluxValue::Double(std::f64::consts::E)),
+                "LN2" => return Ok(FluxValue::Double(std::f64::consts::LN_2)),
+                "LN10" => return Ok(FluxValue::Double(std::f64::consts::LN_10)),
+                "SQRT2" => return Ok(FluxValue::Double(std::f64::consts::SQRT_2)),
+                _ => {}
+            }
+            
             vars.get(name)
                 .cloned()
                 .ok_or_else(|| anyhow::anyhow!("Undefined variable: '{}'", name))
@@ -668,9 +891,9 @@ fn main() -> Result<()> {
             }
 
             // Assemble the runtime
-            let runtime_asm = PathBuf::from("fluxc/runtime/runtime.asm");
+            let runtime_asm = PathBuf::from("flux_compiler/fluxc/runtime/runtime.asm");
             if runtime_asm.exists() {
-                let runtime_obj = PathBuf::from("fluxc/runtime/runtime.o");
+                let runtime_obj = PathBuf::from("flux_compiler/fluxc/runtime/runtime.o");
                 let nasm_status = std::process::Command::new("nasm")
                     .args(["-f", "elf64", "-o"])
                     .arg(&runtime_obj)
@@ -749,3 +972,140 @@ fn main() -> Result<()> {
     }
     Ok(())
 }
+
+// --- Evaluation of math function calls ---
+fn eval_math_function(func_name: &str, args: Vec<FluxValue>) -> Result<FluxValue> {
+    match func_name {
+        "sqrt" => {
+            if args.len() != 1 {
+                anyhow::bail!("sqrt expects 1 argument, got {}", args.len());
+            }
+            match &args[0] {
+                FluxValue::Integer(n) => Ok(FluxValue::Double((*n as f64).sqrt())),
+                FluxValue::Float(f) => Ok(FluxValue::Float(f.sqrt())),
+                FluxValue::Double(d) => Ok(FluxValue::Double(d.sqrt())),
+                _ => anyhow::bail!("sqrt expects numeric argument"),
+            }
+        }
+        "abs" => {
+            if args.len() != 1 {
+                anyhow::bail!("abs expects 1 argument, got {}", args.len());
+            }
+            match &args[0] {
+                FluxValue::Integer(n) => Ok(FluxValue::Integer(n.abs())),
+                FluxValue::Float(f) => Ok(FluxValue::Float(f.abs())),
+                FluxValue::Double(d) => Ok(FluxValue::Double(d.abs())),
+                _ => anyhow::bail!("abs expects numeric argument"),
+            }
+        }
+        "floor" => {
+            if args.len() != 1 {
+                anyhow::bail!("floor expects 1 argument, got {}", args.len());
+            }
+            match &args[0] {
+                FluxValue::Integer(n) => Ok(FluxValue::Integer(*n)),
+                FluxValue::Float(f) => Ok(FluxValue::Float(f.floor())),
+                FluxValue::Double(d) => Ok(FluxValue::Double(d.floor())),
+                _ => anyhow::bail!("floor expects numeric argument"),
+            }
+        }
+        "ceil" => {
+            if args.len() != 1 {
+                anyhow::bail!("ceil expects 1 argument, got {}", args.len());
+            }
+            match &args[0] {
+                FluxValue::Integer(n) => Ok(FluxValue::Integer(*n)),
+                FluxValue::Float(f) => Ok(FluxValue::Float(f.ceil())),
+                FluxValue::Double(d) => Ok(FluxValue::Double(d.ceil())),
+                _ => anyhow::bail!("ceil expects numeric argument"),
+            }
+        }
+        "round" => {
+            if args.len() != 1 {
+                anyhow::bail!("round expects 1 argument, got {}", args.len());
+            }
+            match &args[0] {
+                FluxValue::Integer(n) => Ok(FluxValue::Integer(*n)),
+                FluxValue::Float(f) => Ok(FluxValue::Float(f.round())),
+                FluxValue::Double(d) => Ok(FluxValue::Double(d.round())),
+                _ => anyhow::bail!("round expects numeric argument"),
+            }
+        }
+        "sin" => {
+            if args.len() != 1 {
+                anyhow::bail!("sin expects 1 argument, got {}", args.len());
+            }
+            match &args[0] {
+                FluxValue::Integer(n) => Ok(FluxValue::Double((*n as f64).sin())),
+                FluxValue::Float(f) => Ok(FluxValue::Float(f.sin())),
+                FluxValue::Double(d) => Ok(FluxValue::Double(d.sin())),
+                _ => anyhow::bail!("sin expects numeric argument"),
+            }
+        }
+        "cos" => {
+            if args.len() != 1 {
+                anyhow::bail!("cos expects 1 argument, got {}", args.len());
+            }
+            match &args[0] {
+                FluxValue::Integer(n) => Ok(FluxValue::Double((*n as f64).cos())),
+                FluxValue::Float(f) => Ok(FluxValue::Float(f.cos())),
+                FluxValue::Double(d) => Ok(FluxValue::Double(d.cos())),
+                _ => anyhow::bail!("cos expects numeric argument"),
+            }
+        }
+        "tan" => {
+            if args.len() != 1 {
+                anyhow::bail!("tan expects 1 argument, got {}", args.len());
+            }
+            match &args[0] {
+                FluxValue::Integer(n) => Ok(FluxValue::Double((*n as f64).tan())),
+                FluxValue::Float(f) => Ok(FluxValue::Float(f.tan())),
+                FluxValue::Double(d) => Ok(FluxValue::Double(d.tan())),
+                _ => anyhow::bail!("tan expects numeric argument"),
+            }
+        }
+        "pow" => {
+            if args.len() != 2 {
+                anyhow::bail!("pow expects 2 arguments, got {}", args.len());
+            }
+            let base = match &args[0] {
+                FluxValue::Integer(n) => *n as f64,
+                FluxValue::Float(f) => *f as f64,
+                FluxValue::Double(d) => *d,
+                _ => anyhow::bail!("pow expects numeric arguments"),
+            };
+            let exp = match &args[1] {
+                FluxValue::Integer(n) => *n as f64,
+                FluxValue::Float(f) => *f as f64,
+                FluxValue::Double(d) => *d,
+                _ => anyhow::bail!("pow expects numeric arguments"),
+            };
+            Ok(FluxValue::Double(base.powf(exp)))
+        }
+        "ln" => {
+            if args.len() != 1 {
+                anyhow::bail!("ln expects 1 argument, got {}", args.len());
+            }
+            match &args[0] {
+                FluxValue::Integer(n) => Ok(FluxValue::Double((*n as f64).ln())),
+                FluxValue::Float(f) => Ok(FluxValue::Float(f.ln())),
+                FluxValue::Double(d) => Ok(FluxValue::Double(d.ln())),
+                _ => anyhow::bail!("ln expects numeric argument"),
+            }
+        }
+        "log10" => {
+            if args.len() != 1 {
+                anyhow::bail!("log10 expects 1 argument, got {}", args.len());
+            }
+            match &args[0] {
+                FluxValue::Integer(n) => Ok(FluxValue::Double((*n as f64).log10())),
+                FluxValue::Float(f) => Ok(FluxValue::Float(f.log10())),
+                FluxValue::Double(d) => Ok(FluxValue::Double(d.log10())),
+                _ => anyhow::bail!("log10 expects numeric argument"),
+            }
+        }
+        _ => anyhow::bail!("Unknown math function: {}", func_name),
+    }
+}
+
+

@@ -8,6 +8,8 @@ hex_literal = @{ "0x" ~ ASCII_HEX_DIGIT+ }
 bin_literal = @{ "0b" ~ ("0" | "1")+ }
 oct_literal = @{ "0o" ~ ('0'..'7')+ }
 dec_literal = @{ ASCII_DIGIT+ }
+float_literal = @{ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ ("f" | "F") }
+double_literal = @{ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ (("e" | "E") ~ ("+" | "-")? ~ ASCII_DIGIT+)? }
 int_literal = @{ hex_literal | bin_literal | oct_literal | dec_literal }
 bool_literal = @{ "true" | "false" }
 string_literal = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
@@ -15,7 +17,7 @@ char_literal = @{ "'" ~ (!"'" ~ ANY)* ~ "'" }
 
 
 // Types primitifs
-type_ident = { "int" | "uint" | "long" | "ulong" | "byte" | "string" | "bool" | "void" }
+type_ident = { "int" | "uint" | "long" | "float" | "double" | "ulong" | "byte" | "string" | "bool" | "void" }
 
 // Keywords pour async/await
 async_keyword = { "async" }
@@ -27,7 +29,9 @@ logical_op = { "&&" | "||" }
 
 atom = { 
     bool_literal
-    | int_literal 
+    | float_literal
+    | double_literal
+    | int_literal
     | string_literal 
     | char_literal 
     | await_keyword? ~ ident ~ ("(" ~ (expr ~ ("," ~ expr)*)? ~ ")" | ("." ~ ident ~ "()"))?
