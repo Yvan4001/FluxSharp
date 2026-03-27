@@ -1,237 +1,136 @@
-# 🚀 FluxSharp Programming Language
-**A Modern Systems Programming Language Compiling to x86_64 Assembly**
----
-## 📋 Quick Links
-- **Language Guide:** `docs/LANGUAGE_GUIDE.md`
-- **Getting Started:** [See below](#getting-started)
-- **Source Code:** `main.fsh`
----
-## What is FluxSharp?
-FluxSharp is a compiled systems programming language that compiles directly to **NASM x86_64 assembly**. It combines the safety and readability of high-level languages with the performance and control of assembly programming.
-### Key Characteristics
-| Feature | Details |
-|---------|---------|
-| **Type System** | Static, compile-time checked |
-| **Compilation Target** | NASM x86_64 Assembly |
-| **Memory Model** | Stack-based with automatic cleanup |
-| **Execution** | Direct x86_64 binary |
-| **Safety** | Built-in protections (path traversal, symlinks, infinite loops) |
-| **Performance** | Zero overhead abstraction |
----
-## Getting Started
-### 1. Build the Compiler
+# FluxSharp Programming Language
+Modern, efficient, and easy-to-use programming language with async/await support.
+## Quick Start
+### Build and Run
 ```bash
-cd flux_compiler
-cargo build --release
-cd ..
+make              # Compile, assemble, and run (default)
+make build        # Just build the executable
+make run          # Just run the executable
+make clean        # Remove generated files
 ```
-### 2. Compile Your First Program
-```bash
-./flux_compiler/target/release/fluxc compile main.fsh -o program
+### Workflow
 ```
-### 3. Run It
-```bash
-./program
+main.fsh (FluxSharp source)
+   ↓ (fluxc Rust compiler)
+main.asm (x86-64 assembly) [auto-generated]
+   ↓ (GNU as assembler)
+main.o (object file) [auto-generated]
+   ↓ (GNU ld linker)
+program (executable binary) [auto-generated]
 ```
----
-## Language Overview
-### Variables and Types
-```flux
-int age = 25;                      // 64-bit integer
-uint count = 100;                  // Unsigned integer
-float pi = 3.14f;                  // 32-bit float (note 'f')
-double e = 2.71828;                // 64-bit double
-string name = "Alice";             // String
-bool is_active = true;             // Boolean
-```
-### Functions
-```flux
-void calculate(int x, int y) {
-    int result = x + y;
-    print(result);
-}
-void main() {
-    calculate(5, 3);  // Output: 8
-}
-```
-### Classes
-```flux
-class Calculator {
-    public int value;
-    public void add(int x) {
-        value = value + x;
-    }
-}
-void main() {
-    Calculator calc;
-    calc.value = 5;
-    calc.add(3);
-    print(calc.value);  // 8
-}
-```
-### Control Flow
-```flux
-// If-else
-if (age >= 18) {
-    print("Adult");
-} else {
-    print("Minor");
-}
-// While loop
-int i = 0;
-while (i < 10) {
-    print(i);
-    i = i + 1;
-}
-```
----
-## Data Types
-| Type | Size | Range | Example |
-|------|------|-------|---------|
-| `int` | 64-bit | -2^63 to 2^63-1 | `int x = 42;` |
-| `uint` | 64-bit | 0 to 2^64-1 | `uint y = 42;` |
-| `byte` | 8-bit | 0 to 255 | `byte b = 255;` |
-| `float` | 32-bit | Single precision | `float f = 3.14f;` |
-| `double` | 64-bit | Double precision | `double d = 2.71;` |
-| `string` | Variable | Text | `string s = "hi";` |
-| `bool` | 1-bit | true/false | `bool b = true;` |
----
-## Built-in Functions
-### Output
-- `print(value)` - Print to stdout
-- `serial_print(value)` - Alias for print
-### Math Functions
-- `sqrt(x)` - Square root
-- `abs(x)` - Absolute value
-- `floor(x)`, `ceil(x)`, `round(x)` - Rounding
-- `sin(x)`, `cos(x)`, `tan(x)` - Trigonometry
-- `pow(x, y)` - Power
-- `ln(x)`, `log10(x)` - Logarithm
-### Math Constants
-- `PI`, `E`, `LN2`, `LN10`, `SQRT2`
----
-## Compiler Options
-```bash
-# Basic compilation
-fluxc compile main.fsh
-# With output binary
-fluxc compile main.fsh -o program
-# Compile and run
-fluxc compile main.fsh -o program --run
-# Compile multiple files
-fluxc compile --all src/ -o program
-```
----
-## Compilation Process
-```
-main.fsh
-   ↓
-[Parser] → Syntax check & AST
-   ↓
-[Codegen] → x86_64 assembly
-   ↓
-main.asm
-   ↓
-[NASM] → Object code
-   ↓
-main.o
-   ↓
-[Linker] → Link with runtime
-   ↓
-program (executable)
-```
----
-## Security Features
-| Protection | Limit |
-|-----------|-------|
-| File size | 50 MB |
-| Statements per block | 10,000 |
-| Operators per expression | 1,000 |
-| ASM output | 100 MB |
-| Execution timeout | 30 seconds |
-| Symlink access | Blocked |
-| Path traversal | Blocked |
----
-## Examples
-### Hello World
-```flux
-void main() {
-    print("Hello, World!");
-}
-```
-### Counter
-```flux
-int count = 0;
-void increment() {
-    count = count + 1;
-}
-void main() {
-    int i = 0;
-    while (i < 5) {
-        increment();
-        print(count);
-        i = i + 1;
-    }
-}
-```
-### Math Operations
-```flux
-void main() {
-    float x = 3.14f;
-    print(sqrt(16));    // 4.0
-    print(pow(2, 3));   // 8.0
-    double pi = PI;
-    print(pi);
-}
-```
----
-## File Structure
+## Project Structure
 ```
 FluxSharp/
-├── main.fsh              # Your program
+├── main.fsh              # Your FluxSharp source code
+├── main.asm              # Generated assembly (auto-created)
+├── main.o                # Generated object file (auto-created)
+├── program               # Compiled executable (auto-created)
+├── Makefile              # Build system
 ├── README.md             # This file
-├── LICENSE               # MIT License
-├── flux_compiler/        # Compiler source
+│
+├── flux_compiler/        # Rust compiler implementation
 │   └── fluxc/
 │       ├── src/
-│       │   ├── main.rs   # Compiler
-│       │   └── flux_grammar.pest
-│       └── runtime/
-│           └── runtime.asm
-└── docs/                 # Documentation
-    └── LANGUAGE_GUIDE.md
+│       │   └── main.rs   # Compiler entry point
+│       ├── Cargo.toml
+│       └── target/release/fluxc
+│
+├── docs/                 # Documentation
+│   ├── GETTING_STARTED.md
+│   ├── LANGUAGE_GUIDE.md
+│   ├── ASYNC_AWAIT.md
+│   └── API_REFERENCE.md
+│
+├── examples/             # Example programs
+│   ├── hello.fsh
+│   ├── fibonacci.fsh
+│   └── async_example.fsh
+│
+└── .archive/             # Old documentation (archive)
 ```
----
-## Limitations (v1.0)
-- ❌ No return values yet
-- ❌ No for loops (use while)
-- ❌ No arrays/lists
-- ❌ No pointers
-- ❌ No recursion
-- ❌ No generics
-- ❌ No dynamic memory
----
-## Best Practices
-1. **Use meaningful names** - `user_age` not `x`
-2. **Small functions** - Keep focused
-3. **Use classes** - Organize related data
-4. **Document code** - Explain complex logic
-5. **Check inputs** - Validate parameters
----
+## Key Files
+### `main.fsh`
+Your FluxSharp source code. Edit this to write your program:
+```flux
+fn main() {
+    print("Hello, FluxSharp!");
+    return 0;
+}
+```
+### `main.asm` (Auto-generated)
+x86-64 assembly code created by the Rust compiler.
+- Do not edit manually - regenerated on each build
+- AT&T syntax - GNU as compatible
+### `program` (Auto-generated)
+The executable binary - run it with `./program`
+## Usage Examples
+### Run Hello World (already set up)
+```bash
+make
+```
+### Edit Your Code
+```bash
+nano main.fsh
+make
+```
+### Clean Rebuild
+```bash
+make clean
+make build
+```
+### Full Clean (including compiler)
+```bash
+make distclean
+```
+## Language Features
+### Functions
+```flux
+fn add(a: int, b: int) -> int {
+    return a + b;
+}
+```
+### Data Types
+- `int` - 64-bit integer
+- `float` - 64-bit floating point
+- `string` - Text string
+- `bool` - Boolean
+### Control Flow
+```flux
+if condition {
+    ; code
+} else {
+    ; code
+}
+while condition {
+    ; code
+}
+```
+### Async/Await
+```flux
+async fn fetch(url: string) -> string {
+    let response = await http_get(url);
+    return response;
+}
+```
+## Documentation
+- docs/GETTING_STARTED.md - Tutorial for beginners
+- docs/LANGUAGE_GUIDE.md - Complete language reference
+- docs/ASYNC_AWAIT.md - Async/await guide
+- docs/API_REFERENCE.md - Standard library
+## System Requirements
+- Rust: 1.70+ (for rebuilding compiler)
+- GNU as: Assembler
+- GNU ld: Linker
+- Linux x86-64: Target platform
 ## Troubleshooting
 | Problem | Solution |
 |---------|----------|
-| Syntax Error | Check braces `{}` and semicolons |
-| File not found | Ensure `main.fsh` exists |
-| Binary won't run | Verify `main()` exists |
-| Output shows `[float]` | Known limitation, use literals |
----
-## Resources
-- **Language Guide:** `docs/LANGUAGE_GUIDE.md` - Complete reference
-- **Example Program:** `main.fsh` - Working demo
-- **Compiler Source:** `flux_compiler/` - Implementation
----
+| `fluxc: not found` | Run `cd flux_compiler && cargo build --release` |
+| `as: not found` | Run `sudo apt-get install binutils` |
+| Assembly syntax errors | Check `main.fsh` syntax |
 ## License
-FluxSharp is licensed under the **MIT License**.
+See LICENSE file
+## Version
+FluxSharp v2.0.0
 ---
-**FluxSharp v1.0 | Ready for Production**
+**Ready to start? Run `make` to build and execute!**

@@ -1,0 +1,56 @@
+# FluxSharp - Main Makefile
+# Organize and build the entire project
+
+.PHONY: all clean runtime compiler examples test help
+
+# Directories
+RUNTIME_DIR := flux_compiler/fluxc/runtime
+COMPILER_DIR := flux_compiler
+EXAMPLES_DIR := examples
+
+# Default target
+all: runtime compiler
+
+# Build async runtime
+runtime:
+	@echo "Building async runtime..."
+	@cd $(RUNTIME_DIR) && make
+	@echo "✓ Runtime built"
+
+# Build Rust compiler
+compiler:
+	@echo "Building FluxSharp compiler..."
+	@cd $(COMPILER_DIR) && cargo build --release
+	@echo "✓ Compiler built"
+
+# Clean everything
+clean:
+	@echo "Cleaning build artifacts..."
+	@cd $(RUNTIME_DIR) && make clean
+	@cd $(COMPILER_DIR) && cargo clean
+	@echo "✓ Cleaned"
+
+# Run tests
+test:
+	@echo "Running tests..."
+	@cd $(COMPILER_DIR) && cargo test --release
+	@echo "✓ Tests passed"
+
+# Show help
+help:
+	@echo "FluxSharp Build System"
+	@echo ""
+	@echo "Targets:"
+	@echo "  make all       - Build runtime and compiler (default)"
+	@echo "  make runtime   - Build async runtime only"
+	@echo "  make compiler  - Build Rust compiler only"
+	@echo "  make test      - Run all tests"
+	@echo "  make clean     - Clean all artifacts"
+	@echo "  make help      - Show this help"
+	@echo ""
+	@echo "Project Structure:"
+	@echo "  ├── flux_compiler/fluxc/runtime/   - Assembly code"
+	@echo "  ├── flux_compiler/                 - Rust compiler"
+	@echo "  ├── examples/                      - Example programs"
+	@echo "  └── docs/                          - Documentation"
+

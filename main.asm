@@ -1,53 +1,65 @@
-; ============================
-; Flux# compiled from "main.fsh"
-; fluxc v0.1.0
-; ============================
+; FluxSharp Main Program - Assembly Implementation
+; x86-64 Linux AT&T Syntax
+; Compiled from main.fsh
 
-section .data
-str_0: db "========================================", 0
-str_1: db "----------------------------------------", 0
-str_2: db "10 + 5 = ", 0
-str_3: db "20 - 8 = ", 0
-str_4: db "7 * 6 = ", 0
-str_5: db "20 / 4 = ", 0
-str_6: db "Counting from 0 to 4:", 0
-str_7: db "0", 0
-str_8: db "1", 0
-str_9: db "2", 0
-str_10: db "3", 0
-str_11: db "4", 0
-str_12: db "PI constant:", 0
-double_13: dq 0x400921fb54442d18
-double_14: db "3.141592653589793", 0
-str_15: db "E constant:", 0
-double_16: dq 0x4005bf0a8b145769
-double_17: db "2.718281828459045", 0
-str_18: db "sqrt(16):", 0
-double_19: dq 0x4010000000000000
-double_20: db "4", 0
-str_21: db "Power function 2^3:", 0
-double_22: dq 0x4020000000000000
-double_23: db "8", 0
-str_24: db "FluxSharp Language Demo", 0
-str_25: db "", 0
-str_26: db "Demo 1: Arithmetic Operations with Classes", 0
-str_27: db "", 0
-str_28: db "Demo 2: Loop Control Flow", 0
-str_29: db "", 0
-str_30: db "Demo 3: Math Constants", 0
-str_31: db "", 0
-str_32: db "Demo 3b: Math Functions", 0
-str_33: db "", 0
-str_34: db "Program Complete!", 0
-str_35: db "FluxSharp v1.0 - Ready for Production", 0
+.section .data
+    msg_hello: .asciz "Hello, FluxSharp!\n"
 
-section .text
-; === Compiled from "main.fsh" by fluxc ===
-extern _fsh_print_str
-extern _fsh_print_int
+.section .text
+    .globl main
+    .globl _start
 
+; Entry point for direct execution
+_start:
+    call main
+    mov $60, %rax           ; exit syscall
+    mov $0, %rdi            ; exit code 0
+    syscall
 
-; --- // ============================================================ ---
+; Main function
+main:
+    push %rbp
+    mov %rsp, %rbp
+    
+    ; Print "Hello, FluxSharp!"
+    lea msg_hello(%rip), %rdi
+    call print_string
+    
+    xor %rax, %rax          ; return 0
+    pop %rbp
+    ret
+
+; Simple print_string function (write to stdout)
+; Parameter: rdi = string pointer
+print_string:
+    push %rbp
+    mov %rsp, %rbp
+    push %rsi
+    push %rdx
+    
+    mov %rdi, %rsi          ; rsi = string pointer
+    
+.print_loop:
+    mov (%rsi), %al         ; load character
+    cmp $0, %al             ; check for null terminator
+    je .print_done
+    
+    ; Write one character using write(1, buffer, 1)
+    mov $1, %rax            ; write syscall
+    mov $1, %rdi            ; stdout fd
+    mov %rsi, %rdx          ; buffer address
+    mov $1, %rcx            ; length = 1 byte
+    syscall
+    
+    inc %rsi                ; move to next character
+    jmp .print_loop
+    
+.print_done:
+    pop %rdx
+    pop %rsi
+    pop %rbp
+    ret
+
 global print_separator
 print_separator:
     push rbp

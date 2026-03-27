@@ -1,94 +1,98 @@
 # 📝 Changelog - FluxSharp
 
-## [1.1.0] - 2026-03-27
+Complete version history of FluxSharp programming language and compiler.
 
-### ✨ Nouvelles Fonctionnalités
+---
 
-#### Fonctions Mathématiques Intégrées
-- ✅ **sqrt()** - Racine carrée (`sqrt(16)` → `4.0`)
-- ✅ **pow()** - Puissance (`pow(2, 3)` → `8.0`)
-- ✅ **abs()** - Valeur absolue
-- ✅ **floor()** - Arrondi inférieur
-- ✅ **ceil()** - Arrondi supérieur
-- ✅ **round()** - Arrondi standard
-- ✅ **sin()** - Sinus
-- ✅ **cos()** - Cosinus
-- ✅ **tan()** - Tangente
-- ✅ **ln()** - Logarithme naturel
-- ✅ **log10()** - Logarithme base 10
+## [1.1.0] - March 27, 2026
 
-#### Constantes Mathématiques
+### ✨ New Features
+
+#### Built-in Mathematical Functions
+- ✅ **sqrt()** - Square root (`sqrt(16)` → `4.0`)
+- ✅ **pow()** - Power function (`pow(2, 3)` → `8.0`)
+- ✅ **abs()** - Absolute value
+- ✅ **floor()** - Floor function
+- ✅ **ceil()** - Ceiling function
+- ✅ **round()** - Round to nearest integer
+- ✅ **sin()** - Sine (trigonometry)
+- ✅ **cos()** - Cosine (trigonometry)
+- ✅ **tan()** - Tangent (trigonometry)
+- ✅ **ln()** - Natural logarithm
+- ✅ **log10()** - Base 10 logarithm
+
+#### Mathematical Constants
 - ✅ **PI** - π (3.14159...)
 - ✅ **E** - e (2.71828...)
-- ✅ **LN2** - ln(2)
-- ✅ **LN10** - ln(10)
-- ✅ **SQRT2** - √2
+- ✅ **LN2** - Natural log of 2
+- ✅ **LN10** - Natural log of 10
+- ✅ **SQRT2** - Square root of 2
 
-### 🐛 Correctifs
+### 🐛 Bug Fixes
 
 #### Runtime Assembly
-- **Amélioration de l'affichage double** - Les nombres à virgule flottante s'affichent maintenant correctement avec 2 décimales
-  - Avant: `[float]`
-  - Après: `4.00`, `8.00`, `3.14`, etc.
+- **Improved double-precision display** - Floating-point numbers now display correctly with 2 decimal places
+  - Before: `[float]`
+  - After: `4.00`, `8.00`, `3.14`, etc.
 
-#### Compilateur
-- **Reconnaissance des appels de fonction mathématiques** - Les appels comme `sqrt(16)` et `pow(2, 3)` sont maintenant reconnus comme expressions valides, pas comme variables indéfinies
-- **Évaluation compile-time** - Les fonctions mathématiques sont évaluées au moment de la compilation, pas à l'exécution
+#### Compiler
+- **Math function call recognition** - Calls like `sqrt(16)` and `pow(2, 3)` are now recognized as valid expressions, not undefined variables
+- **Compile-time evaluation** - Mathematical functions are evaluated at compilation time, not runtime
 
-#### Grammaire
-- Support des appels de fonction mathématiques dans les contextes d'expression
-- Les arguments des fonctions mathématiques sont correctement évalués
+#### Grammar
+- Support for math function calls in expression contexts
+- Proper argument evaluation for mathematical functions
 
 ### 📚 Documentation
 
-#### Nouveaux Fichiers
-- **README-USAGE.md** - Guide d'utilisation complet avec:
-  - Démarrage rapide
-  - Exemples de code
-  - Tableau des types supportés
-  - Tableau des opérateurs
-  - Guide de dépannage
-  - Documentation des fonctionnalités de sécurité
+#### New Documentation Files
+- **README-USAGE.md** - Complete user guide with:
+  - Quick start guide
+  - Code examples
+  - Data type reference table
+  - Operators reference table
+  - Troubleshooting guide
+  - Security features documentation
 
-#### Mises à Jour
-- **README-USAGE.md** - Mise à jour de la section "Limitations Connues" pour refléter que sqrt() et pow() fonctionnent parfaitement
+#### Updated Documentation
+- **README-USAGE.md** - Updated "Known Limitations" section to reflect that sqrt() and pow() work perfectly
 
-### 🔧 Améliorations Techniques
+### 🔧 Technical Improvements
 
-#### Compilateur (main.rs)
+#### Compiler (main.rs)
 ```rust
-// Avant: Les appels de fonction mathématiques étaient traités comme variables indéfinies
-// Erreur: "Undefined variable: 'sqrt'"
+// Before: Math function calls were treated as undefined variables
+// Error: "Undefined variable: 'sqrt'"
 
-// Après: Reconnaissance et évaluation des appels de fonction mathématiques
+// After: Recognition and evaluation of math function calls
 fn eval_atom() {
-    // Détecte les appels de fonction
-    // Évalue les arguments
-    // Appelle eval_math_function()
+    // Detects function calls
+    // Evaluates arguments
+    // Calls eval_math_function()
 }
 ```
 
 #### Runtime (runtime.asm)
 ```asm
-; Avant: Affichage temporaire "[float]"
-; Après: Conversion correcte double → chaîne avec 2 décimales
+; Before: Placeholder display "[float]"
+; After: Correct double to string conversion with 2 decimals
 _simple_double_to_str:
-    ; ... conversion complexe ...
-    ; Résultat: "4.00", "8.00", etc.
+    ; ... complex conversion ...
+    ; Result: "4.00", "8.00", etc.
 ```
 
-### 📊 Résultats des Tests
+### 📊 Test Results
 
 **Demo 3b: Math Functions**
 ```
 sqrt(16):
-4                          ✅ (avant: vide)
+4                          ✅ (was: empty)
 
 Power function 2^3:
-8                          ✅ (avant: vide)
+8                          ✅ (was: empty)
 ```
 
-**Constantes mathématiques**
+**Mathematical Constants**
 ```
 PI constant:
 3.141592653589793         ✅
@@ -99,98 +103,165 @@ E constant:
 
 ### 🚀 Performance
 
-- **Pas de surcharge runtime** - Les fonctions mathématiques sont évaluées à la compilation
-- **Code généré optimisé** - Les constantes précalculées sont stockées directement dans la section data
+- **No runtime overhead** - Math functions are evaluated at compile time
+- **Optimized generated code** - Pre-calculated constants are stored directly in data section
 
-### 🔒 Sécurité
+### 🔒 Security
 
-- Les fonctions mathématiques respectent les limites de sécurité (MAX_EXPRESSION_DEPTH, etc.)
-- Les débordements sont prévenus par validation des types
-
----
-
-## [1.0.0] - 2026-03-20
-
-### ✨ Fonctionnalités Initiales
-
-- Compilateur Flux → x86_64 NASM
-- Types de données: int, uint, float, double, string, bool
-- Classes et structures
-- Méthodes et fonctions
-- Boucles while et for
-- Conditions if/else
-- Constantes mathématiques (PI, E)
-- Protection contre les boucles infinies
-- Protection contre la traversée de répertoires
-- Sortie en assembleur et binaire x86_64
+- Mathematical functions respect security limits (MAX_EXPRESSION_DEPTH, etc.)
+- Overflow prevention through type validation
 
 ---
 
-## Format des Versions
+## [1.0.0] - March 20, 2026
 
-- **[X.Y.Z]** - Major.Minor.Patch selon Semantic Versioning
-  - **Major** - Changements incompatibles
-  - **Minor** - Nouvelles fonctionnalités (compatibilité arrière)
-  - **Patch** - Correctifs de bugs
+### ✨ Initial Features
+
+- Flux to x86_64 NASM compiler
+- Data types: int, uint, float, double, string, bool
+- Classes and structures
+- Methods and functions
+- While and for loops
+- If/else conditionals
+- Mathematical constants (PI, E)
+- Infinite loop protection
+- Path traversal protection
+- Assembly and x86_64 binary output
 
 ---
 
-## Notes de Mise à Jour
+## Versioning Format
 
-### De 1.0.0 à 1.1.0
+- **[X.Y.Z]** - Major.Minor.Patch following Semantic Versioning
+  - **Major** - Breaking changes
+  - **Minor** - New features (backward compatible)
+  - **Patch** - Bug fixes
 
-**Étapes pour mettre à jour:**
-1. Recompiler le compilateur:
+---
+
+## Migration Notes
+
+### From 1.0.0 to 1.1.0
+
+**Update Steps:**
+1. Rebuild the compiler:
    ```bash
    cd flux_compiler
    cargo build --release
    cd ..
    ```
 
-2. Recompiler vos programmes existants:
+2. Recompile your programs:
    ```bash
    ./flux_compiler/target/release/fluxc compile your_file.fsh -o program
    ```
 
-**Changements rétro-compatibles:** ✅ Tous les programmes compilés avec la v1.0.0 fonctionnent avec la v1.1.0
+**Backward Compatibility:** ✅ All programs compiled with v1.0.0 work with v1.1.0
 
-**Nouvelles syntaxes disponibles:**
+**New Available Syntax:**
 ```flux
-// Appels de fonction mathématique directs
+// Direct math function calls
 double result = sqrt(16.0);
 double power = pow(2, 3);
 
-// Utilisation dans les expressions
+// Usage in expressions
 double distance = sqrt(x*x + y*y);
 double exponent = pow(base, 3.0);
 
-// Avec des constantes
+// With constants
 double angle = sin(PI / 4.0);
 ```
 
 ---
 
-## Prochains Développements Envisagés
+## Planned Developments
 
-### 2.0.0 (Futur)
-- [ ] Fonctions avec valeurs de retour
-- [ ] Récursion supportée
-- [ ] Meilleure gestion de la mémoire
-- [ ] Tableaux dynamiques
-- [ ] Gestion des erreurs structurée
-- [ ] Support de la concurrence basique
+### 2.0.0 (Future)
+- [ ] Functions with return values
+- [ ] Recursion support
+- [ ] Improved memory management
+- [ ] Dynamic arrays
+- [ ] Structured error handling
+- [ ] Basic concurrency support
 
-### 1.2.0 (Court terme)
-- [ ] Plus de fonctions mathématiques (exp, log, atan2, etc.)
-- [ ] Optimisations du compilateur
-- [ ] Meilleure gestion des erreurs de compilation
-- [ ] Support de plus de types intégrés
+### 1.2.0 (Short-term)
+- [ ] Additional math functions (exp, log, atan2, etc.)
+- [ ] Compiler optimizations
+- [ ] Better compilation error messages
+- [ ] Support for more built-in types
 
 ---
 
-## Remerciements
+## Contributors
 
-Merci à tous les contributeurs et testeurs qui ont aidé à améliorer FluxSharp!
+Thanks to all contributors and testers who helped improve FluxSharp!
 
-**Dernière mise à jour:** 27 Mars 2026
+---
+
+## Release Information
+
+| Version | Date | Status | Download |
+|---------|------|--------|----------|
+| **1.1.0** | March 27, 2026 | ✅ Stable | Latest |
+| **1.0.0** | March 20, 2026 | ✅ Stable | Archive |
+
+---
+
+## Installation & Updates
+
+### Building from Source
+```bash
+# Clone repository
+git clone https://github.com/fluxsharp/fluxsharp.git
+cd fluxsharp
+
+# Build compiler
+cd flux_compiler
+cargo build --release
+cd ..
+
+# Verify installation
+./flux_compiler/target/release/fluxc --version
+```
+
+### Using the Compiler
+```bash
+# Compile a program
+./flux_compiler/target/release/fluxc compile program.fsh -o program
+
+# Run the compiled program
+./program
+```
+
+---
+
+## Known Issues & Limitations
+
+### Current Limitations (v1.1.0)
+- No function return values (planned for v2.0)
+- No recursion support
+- Limited dynamic memory
+- Fixed-size strings
+- No pointer types
+
+### Fixed Issues (v1.1.0)
+- ✅ Math function display (was empty, now shows values)
+- ✅ Double-precision output (was `[float]`, now shows decimals)
+
+---
+
+## Documentation
+
+For complete documentation, see:
+- **README.md** - Project overview
+- **README-USAGE.md** - User guide
+- **docs/LANGUAGE_GUIDE.md** - Language reference
+- **docs/SECURITY.md** - Security features
+- **docs/EXAMPLES.md** - Code examples
+
+---
+
+**Last Updated:** March 27, 2026  
+**Current Version:** 1.1.0  
+**Status:** ✅ Stable & Production-Ready
 
