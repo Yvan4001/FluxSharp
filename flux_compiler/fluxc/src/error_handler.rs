@@ -4,6 +4,7 @@
 use std::fmt;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct CompileError {
     pub line: usize,
     pub column: usize,
@@ -13,6 +14,7 @@ pub struct CompileError {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 pub enum ErrorType {
     SyntaxError,
     TypeError,
@@ -28,6 +30,7 @@ pub enum ErrorType {
 }
 
 impl CompileError {
+    #[allow(dead_code)]
     pub fn new(
         line: usize,
         column: usize,
@@ -44,6 +47,7 @@ impl CompileError {
         }
     }
 
+    #[allow(dead_code)]
     pub fn missing_semicolon(line: usize, source_line: String) -> Self {
         CompileError {
             line,
@@ -54,6 +58,7 @@ impl CompileError {
         }
     }
 
+    #[allow(dead_code)]
     pub fn type_mismatch(
         line: usize,
         column: usize,
@@ -74,6 +79,7 @@ impl CompileError {
         }
     }
 
+    #[allow(dead_code)]
     pub fn undefined_variable(
         line: usize,
         column: usize,
@@ -93,6 +99,7 @@ impl CompileError {
         }
     }
 
+    #[allow(dead_code)]
     pub fn undefined_function(
         line: usize,
         column: usize,

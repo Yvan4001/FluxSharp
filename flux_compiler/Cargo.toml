@@ -1,8 +1,9 @@
 [workspace]
 members = ["fluxc"]
+resolver = "2"
 
 [workspace.package]
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 authors = ["FluxSharp <noreply@example.com>"]
 

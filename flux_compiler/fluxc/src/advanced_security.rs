@@ -12,6 +12,7 @@
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum OverflowCheckMode {
     /// Unchecked (C/C++ style) - UNSAFE
     Unchecked,
@@ -22,6 +23,7 @@ pub enum OverflowCheckMode {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct SecurityConfig {
     /// Enable integer overflow detection
     pub check_overflow: bool,
@@ -50,12 +52,8 @@ impl Default for SecurityConfig {
     }
 }
 
-pub struct AdvancedSecurityValidator {
-    config: SecurityConfig,
-    checked_variables: HashMap<String, VariableSecurity>,
-}
-
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct VariableSecurity {
     pub name: String,
     pub var_type: String,
@@ -64,7 +62,14 @@ pub struct VariableSecurity {
     pub bounds: Option<(i64, i64)>, // min, max
 }
 
+#[allow(dead_code)]
+pub struct AdvancedSecurityValidator {
+    config: SecurityConfig,
+    checked_variables: HashMap<String, VariableSecurity>,
+}
+
 impl AdvancedSecurityValidator {
+    #[allow(dead_code)]
     pub fn new(config: SecurityConfig) -> Self {
         AdvancedSecurityValidator {
             config,
@@ -73,6 +78,7 @@ impl AdvancedSecurityValidator {
     }
 
     /// Register a variable with security metadata
+    #[allow(dead_code)]
     pub fn register_variable(
         &mut self,
         name: String,
@@ -105,6 +111,7 @@ impl AdvancedSecurityValidator {
     }
 
     /// Validate integer arithmetic for overflow
+    #[allow(dead_code)]
     pub fn validate_arithmetic(
         &self,
         operand1: i64,
@@ -152,6 +159,7 @@ impl AdvancedSecurityValidator {
     }
 
     /// Validate null safety
+    #[allow(dead_code)]
     pub fn validate_null_access(
         &self,
         var_name: &str,
@@ -174,6 +182,7 @@ impl AdvancedSecurityValidator {
     }
 
     /// Validate type casting safety
+    #[allow(dead_code)]
     pub fn validate_cast(
         &self,
         from_type: &str,
@@ -207,146 +216,14 @@ impl AdvancedSecurityValidator {
         Ok(())
     }
 
-    /// Generate safe arithmetic code
-    pub fn generate_safe_arithmetic(
-        &self,
-        var_name: &str,
-        operator: &str,
-        operand: &str,
-    ) -> Result<String, String> {
-        if !self.config.check_overflow {
-            return Ok(format!(
-                "    {} {} {} (unchecked)\n",
-                var_name, operator, operand
-            ));
-        }
-
-        let mut asm = String::new();
-        asm.push_str(&format!(
-            "    ; Safe arithmetic: {} {} {}\n",
-            var_name, operator, operand
-        ));
-
-        match operator {
-            "+" => {
-                asm.push_str("    add rax, rbx\n");
-                asm.push_str("    jo .overflow_error  ; Jump if overflow\n");
-                asm.push_str("    ; ✅ Addition safe\n");
-            }
-            "-" => {
-                asm.push_str("    sub rax, rbx\n");
-                asm.push_str("    jo .overflow_error  ; Jump if overflow\n");
-                asm.push_str("    ; ✅ Subtraction safe\n");
-            }
-            "*" => {
-                asm.push_str("    imul rax, rbx\n");
-                asm.push_str("    jo .overflow_error  ; Jump if overflow\n");
-                asm.push_str("    ; ✅ Multiplication safe\n");
-            }
-            _ => {
-                return Err(format!("Unsupported operator for safe arithmetic: {}", operator));
-            }
-        }
-
-        Ok(asm)
-    }
-
-    /// Generate overflow error handler
-    pub fn generate_overflow_handler(&self) -> String {
-        let mut asm = String::new();
-        
-        asm.push_str(".overflow_error:\n");
-        asm.push_str("    ; ❌ Integer overflow detected\n");
-        asm.push_str("    mov rdi, 1      ; Exit code 1\n");
-        asm.push_str("    mov rax, 60     ; syscall: exit\n");
-        asm.push_str("    syscall\n\n");
-
-        asm
-    }
-
-    /// Generate null safety check
-    pub fn generate_null_check(
-        &self,
-        var_name: &str,
-    ) -> Result<String, String> {
-        if !self.config.null_safe {
-            return Ok(String::new());
-        }
-
-        let mut asm = String::new();
-        asm.push_str(&format!("; Null safety check for {}\n", var_name));
-        asm.push_str("    cmp rax, 0\n");
-        asm.push_str("    je .null_pointer_error\n");
-        asm.push_str("    ; ✅ Pointer is valid\n");
-
-        Ok(asm)
-    }
-
-    /// Generate null pointer error handler
-    pub fn generate_null_handler(&self) -> String {
-        let mut asm = String::new();
-
-        asm.push_str(".null_pointer_error:\n");
-        asm.push_str("    ; ❌ Null pointer dereference\n");
-        asm.push_str("    mov rdi, 1      ; Exit code 1\n");
-        asm.push_str("    mov rax, 60     ; syscall: exit\n");
-        asm.push_str("    syscall\n\n");
-
-        asm
-    }
-
-    /// Generate type safety check
-    pub fn generate_type_check(
-        &self,
-        var_name: &str,
-        from_type: &str,
-        to_type: &str,
-    ) -> Result<String, String> {
-        if !self.config.type_safe {
-            return Ok(String::new());
-        }
-
-        let mut asm = String::new();
-        asm.push_str(&format!(
-            "; Type safety check: {} from {} to {}\n",
-            var_name, from_type, to_type
-        ));
-
-        match (from_type, to_type) {
-            ("int", "byte") => {
-                asm.push_str("    cmp rax, 0\n");
-                asm.push_str("    jl .type_error\n");
-                asm.push_str("    cmp rax, 255\n");
-                asm.push_str("    jg .type_error\n");
-                asm.push_str("    ; ✅ Type cast safe\n");
-            }
-            _ => {
-                asm.push_str("    ; Type check passed\n");
-            }
-        }
-
-        Ok(asm)
-    }
-
-    /// Generate type error handler
-    pub fn generate_type_error_handler(&self) -> String {
-        let mut asm = String::new();
-
-        asm.push_str(".type_error:\n");
-        asm.push_str("    ; ❌ Type safety violation\n");
-        asm.push_str("    mov rdi, 1      ; Exit code 1\n");
-        asm.push_str("    mov rax, 60     ; syscall: exit\n");
-        asm.push_str("    syscall\n\n");
-
-        asm
-    }
-
-    /// Get security configuration
+    /// Check if array is registered
+    #[allow(dead_code)]
     pub fn config(&self) -> &SecurityConfig {
         &self.config
     }
 
     /// Get all checked variables
+    #[allow(dead_code)]
     pub fn variables(&self) -> &HashMap<String, VariableSecurity> {
         &self.checked_variables
     }

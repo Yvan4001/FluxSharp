@@ -12,14 +12,17 @@ mod error_handler;
 mod bounds_checker;
 mod advanced_security;
 mod async_runtime;
+mod exception_handler;
 
 // ===== SECURITY CONSTRAINTS =====
 const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;  // 50 MB
 const MAX_ASM_OUTPUT_SIZE: usize = 100 * 1024 * 1024;  // 100 MB
 const MAX_STATEMENTS_PER_BLOCK: usize = 10_000;  // Limit statements to prevent infinite loops
+#[allow(dead_code)]
 const MAX_EXPRESSION_DEPTH: usize = 100;  // Limit recursion depth
 const MAX_OPERATOR_CHAIN: usize = 1_000;  // Limit operators in one expression
 const RUN_TIMEOUT_SECS: u64 = 30;  // 30 seconds max runtime
+#[allow(dead_code)]
 const RUN_MEMORY_LIMIT_MB: u64 = 512;  // 512 MB memory limit
 
 // ===== SECURITY FUNCTIONS =====

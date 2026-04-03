@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ArrayInfo {
     pub name: String,
     pub element_type: String,
@@ -14,6 +15,7 @@ pub struct ArrayInfo {
     pub dimensions: Vec<usize>, // For multi-dimensional arrays
 }
 
+#[allow(dead_code)]
 pub struct BoundsChecker {
     /// Maps array name to array metadata
     arrays: HashMap<String, ArrayInfo>,
@@ -38,6 +40,7 @@ impl BoundsChecker {
     }
 
     /// Register a multi-dimensional array
+    #[allow(dead_code)]
     pub fn register_multi_array(&mut self, name: String, array_type: String, dimensions: Vec<usize>) {
         let total_size = dimensions.iter().product();
         let info = ArrayInfo {
@@ -113,6 +116,7 @@ impl BoundsChecker {
     }
 
     /// Generate the bounds error handler for a specific array
+    #[allow(dead_code)]
     pub fn generate_error_handler(&self, array_name: &str) -> String {
         let mut asm = String::new();
         

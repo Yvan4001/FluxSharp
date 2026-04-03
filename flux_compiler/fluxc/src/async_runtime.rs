@@ -12,11 +12,13 @@
 use std::collections::VecDeque;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[allow(dead_code)]
 pub struct PromiseId {
     id: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum PromiseState {
     /// Promise is pending (not yet resolved)
     Pending,
@@ -27,6 +29,7 @@ pub enum PromiseState {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Promise {
     pub id: PromiseId,
     pub state: PromiseState,
@@ -44,32 +47,38 @@ impl Promise {
         }
     }
 
+    #[allow(dead_code)]
     pub fn resolve(mut self, value: String) -> Self {
         self.state = PromiseState::Resolved;
         self.value = Some(value);
         self
     }
 
+    #[allow(dead_code)]
     pub fn reject(mut self, error: String) -> Self {
         self.state = PromiseState::Rejected;
         self.error = Some(error);
         self
     }
 
+    #[allow(dead_code)]
     pub fn is_pending(&self) -> bool {
         self.state == PromiseState::Pending
     }
 
+    #[allow(dead_code)]
     pub fn is_resolved(&self) -> bool {
         self.state == PromiseState::Resolved
     }
 
+    #[allow(dead_code)]
     pub fn is_rejected(&self) -> bool {
         self.state == PromiseState::Rejected
     }
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct AsyncFunction {
     pub name: String,
     pub return_type: String,
@@ -78,6 +87,7 @@ pub struct AsyncFunction {
 }
 
 impl AsyncFunction {
+    #[allow(dead_code)]
     pub fn new(name: String, return_type: String, is_async: bool) -> Self {
         AsyncFunction {
             name,
@@ -87,18 +97,21 @@ impl AsyncFunction {
         }
     }
 
+    #[allow(dead_code)]
     pub fn add_parameter(&mut self, name: String, param_type: String) {
         self.parameters.push((name, param_type));
     }
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct AwaitExpression {
     pub function_name: String,
     pub promise_id: Option<PromiseId>,
     pub result_var: Option<String>,
 }
 
+#[allow(dead_code)]
 pub struct AsyncRuntime {
     promises: std::collections::HashMap<u64, Promise>,
     next_promise_id: u64,
@@ -157,6 +170,7 @@ impl AsyncRuntime {
     }
 
     /// Reject a promise
+    #[allow(dead_code)]
     pub fn reject_promise(&mut self, id: PromiseId, error: String) -> Result<(), String> {
         if let Some(promise) = self.promises.get_mut(&id.id) {
             if !promise.is_pending() {
