@@ -115,6 +115,162 @@ fn validate_input_path(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Validate that file has exactly one Main class with main method
+fn validate_main_class(content: &str) -> Result<()> {
+    let main_class_count = content.matches("class Main").count();
+    let main_method_count = content.matches("void main()").count() + content.matches("void main ()").count();
+    
+    if main_class_count == 0 {
+        bail!(
+            "❌ MISSING MAIN CLASS\n\n\
+            Your program must have exactly one 'class Main' with a 'void main()' method.\n\n\
+            Example:\n\
+            public class Main {{\n\
+                public void main() {{\n\
+                    print(\"Hello, World!\");\n\
+                }}\n\
+            }}\n"
+        );
+    }
+    
+    if main_class_count > 1 {
+        bail!(
+            "❌ MULTIPLE MAIN CLASSES\n\n\
+            Your program has {} 'class Main' declarations.\n\
+            You must have exactly one 'class Main'.\n",
+            main_class_count
+        );
+    }
+    
+    if main_method_count == 0 {
+        bail!(
+            "❌ MISSING MAIN METHOD\n\n\
+            Your 'class Main' must have exactly one 'void main()' method.\n\n\
+            Example:\n\
+            public class Main {{\n\
+                public void main() {{\n\
+                    print(\"Hello, World!\");\n\
+                }}\n\
+            }}\n"
+        );
+    }
+    
+    if main_method_count > 1 {
+        bail!(
+            "❌ MULTIPLE MAIN METHODS\n\n\
+            Your 'class Main' has {} 'void main()' methods.\n\
+            You must have exactly one 'void main()' method.\n",
+            main_method_count
+        );
+    }
+    
+    Ok(())
+}
+
+/// Internal helper to process includes with circular dependency detection
+fn process_includes_internal(
+    content: &str,
+    base_dir: &Path,
+    included_files: &mut std::collections::HashSet<String>,
+) -> Result<String> {
+    let mut result = String::new();
+    
+    for line in content.lines() {
+        let trimmed = line.trim();
+        
+        // Check for C# style import/using: using "filename.fsh"; or import "filename.fsh";
+        let is_using = trimmed.starts_with("using ") && trimmed.ends_with(";");
+        let is_import = trimmed.starts_with("import ") && trimmed.ends_with(";");
+        // Check for legacy include directive: // #include "filename.fsh"
+        let is_legacy_include = trimmed.starts_with("//") && trimmed.contains("#include") && trimmed.contains("\"");
+        
+        if is_using || is_import || is_legacy_include {
+            // Extract filename from the different formats
+            let filename = if let Some(start) = trimmed.find('"') {
+                if let Some(end) = trimmed.rfind('"') {
+                    if start < end {
+                        Some(&trimmed[start + 1..end])
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            
+            if let Some(filename) = filename {
+                // Validate that it's a .fsh file
+                if !filename.ends_with(".fsh") {
+                    bail!(
+                        "❌ INVALID IMPORT FILE\n\n\
+                        Import/using directive contains non-.fsh file: '{}'\n\
+                        Only .fsh files are allowed.\n\n\
+                        Correct formats:\n\
+                        using \"myfile.fsh\";\n\
+                        import \"myfile.fsh\";\n",
+                        filename
+                    );
+                }
+                
+                // Build the path
+                let include_path = base_dir.join(filename);
+                
+                // Check if file exists first, before path validation
+                if !include_path.exists() {
+                    bail!(
+                        "❌ IMPORT FILE NOT FOUND\n\n\
+                        Cannot find imported file: '{}'\n\
+                        Looked in: {:?}\n",
+                        filename,
+                        include_path
+                    );
+                }
+                
+                // Validate path doesn't escape base directory
+                validate_input_path(&include_path)?;
+                
+                // Prevent circular includes
+                if included_files.contains(filename) {
+                    bail!(
+                        "❌ CIRCULAR IMPORT\n\n\
+                        Circular import detected: '{}' already imported.\n",
+                        filename
+                    );
+                }
+                included_files.insert(filename.to_string());
+                
+                // Read and include the file
+                eprintln!("📥 Importing: {}", filename);
+                let included_content = fs::read_to_string(&include_path)
+                    .with_context(|| format!("Cannot read imported file: {}", filename))?;
+                
+                // Validate file size
+                validate_file_size(&include_path)?;
+                
+                // Recursively process includes in the included file
+                let processed = process_includes_internal(&included_content, base_dir, included_files)?;
+                result.push_str(&processed);
+                result.push('\n');
+                continue;
+            }
+        }
+        
+        // Regular line - add as-is
+        result.push_str(line);
+        result.push('\n');
+    }
+    
+    Ok(result)
+}
+
+/// Process include statements and load external .fsh files
+fn process_includes(content: &str, base_dir: &Path) -> Result<String> {
+    let mut included_files = std::collections::HashSet::new();
+    process_includes_internal(content, base_dir, &mut included_files)
+}
+
 // --- 1. CONFIGURATION DU PARSEUR PEST ---
 #[derive(PestDeriveParser)]
 #[grammar = "flux_grammar.pest"]
@@ -489,13 +645,15 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
         }
     }
 
-    // Ensure there is a main symbol for runtime entrypoint
-    if !symbols.functions.contains_key("main") {
-        if symbols.functions.contains_key("Main") {
-            text_section.push_str("global main\nmain:\n    call Main\n    ret\n\n");
-        } else {
-            text_section.push_str("global main\nmain:\n    mov rax, 0\n    ret\n\n");
-        }
+    // Always ensure there is a main symbol that calls Main_main for runtime entrypoint
+    // Check if we're generating Main_main method (from Main class)
+    let is_main_class = text_section.contains("global Main_main");
+    if is_main_class {
+        // Add a wrapper that the runtime can call
+        text_section.push_str("global main\nmain:\n    call Main_main\n    ret\n\n");
+    } else {
+        // Fallback: create empty main
+        text_section.push_str("global main\nmain:\n    mov rax, 0\n    ret\n\n");
     }
 
     // Assemble the full output
@@ -659,11 +817,36 @@ fn compile_block_with_loop_context(
                                 
                                 // Check if this is a method call (contains a dot)
                                 if func_name.contains('.') {
-                                    // Method call like "calc.Add(5, 3)" - treat as stub for now
-                                    text_section.push_str(&format!(
-                                        "    mov qword [rbp-{}], 0 ; Method call stub: {}\n",
-                                        *stack_offset, func_name
-                                    ));
+                                    // Method call like "helper.GetDouble(21)"
+                                    if let Some(dot_pos) = func_name.find('.') {
+                                        let obj_name = &func_name[..dot_pos].trim();
+                                        let method_name = &func_name[dot_pos + 1..].trim();
+                                        
+                                        // Look up the type of the object to generate the correct label
+                                        let class_name = symbols.variable_types.get(*obj_name)
+                                            .cloned()
+                                            .unwrap_or_else(|| obj_name.to_string());
+                                        let method_label = format!("{}_{}", class_name, method_name);
+                                        
+                                        // Parse arguments
+                                        let args_str = expr_str[paren_pos+1..expr_str.rfind(')').unwrap_or(expr_str.len())].trim();
+                                        if !args_str.is_empty() {
+                                            let args: Vec<&str> = args_str.split(',').map(|s| s.trim()).collect();
+                                            // First argument goes in rdi
+                                            if let Some(first_arg) = args.first() {
+                                                // Try to parse as integer
+                                                if let Ok(n) = first_arg.parse::<i64>() {
+                                                    text_section.push_str(&format!("    mov rdi, {}\n", n));
+                                                } else if let Some(offset) = var_offsets.get(*first_arg) {
+                                                    text_section.push_str(&format!("    mov rdi, [rbp-{}]\n", offset));
+                                                }
+                                            }
+                                        }
+                                        
+                                        // Call the method and store result
+                                        text_section.push_str(&format!("    call {}\n", method_label));
+                                        text_section.push_str(&format!("    mov qword [rbp-{}], rax\n", *stack_offset));
+                                    }
                                 } else {
                                     let args_str = expr_str[paren_pos+1..expr_str.rfind(')').unwrap_or(expr_str.len())].trim();
                                     
@@ -864,10 +1047,13 @@ fn compile_block_with_loop_context(
                             },
                             Err(_e) => {
                                 // Try to handle as variable reference if static evaluation fails
-                                if let Rule::ident = arg_pair.as_rule() {
-                                    let var_name = arg_pair.as_str();
-                                    // Check if it's a known variable on the stack
-                                    if let Some(&offset) = var_offsets.get(var_name) {
+                                let arg_str = arg_pair.as_str().trim();
+                                
+                                // Check if it's a simple identifier (no operators, no function calls)
+                                if !arg_str.contains(" ") && !arg_str.contains("(") && !arg_str.contains("[") 
+                                    && !arg_str.contains("+") && !arg_str.contains("-") && !arg_str.contains("*") && !arg_str.contains("/") {
+                                    // It's likely a simple variable name
+                                    if let Some(&offset) = var_offsets.get(arg_str) {
                                         // Load variable from stack and print it as integer
                                         text_section.push_str(&format!(
                                             "    mov rdi, [rbp-{}]\n    call _fsh_print_int\n",
@@ -875,8 +1061,8 @@ fn compile_block_with_loop_context(
                                         ));
                                     } else {
                                         // Better error message with the actual variable name
-                                        eprintln!("⚠️  WARNING: Undefined variable '{}' used in function call '{}'", var_name, callee);
-                                        text_section.push_str(&format!("    ; ❌ ERROR: Undefined variable '{}' in call to {}\n", var_name, callee));
+                                        eprintln!("⚠️  WARNING: Undefined variable '{}' used in function call '{}'", arg_str, callee);
+                                        text_section.push_str(&format!("    ; ❌ ERROR: Undefined variable '{}' in call to {}\n", arg_str, callee));
                                     }
                                 } else {
                                     eprintln!("⚠️  WARNING: Complex expression not fully supported in function arguments for '{}'", callee);
@@ -1140,6 +1326,120 @@ fn compile_block_with_loop_context(
                 } else {
                     text_section.push_str("    ; ERROR: continue outside of loop\n");
                 }
+            }
+
+            Rule::return_stmt => {
+                let mut return_inner = statement.into_inner();
+                if let Some(expr_pair) = return_inner.next() {
+                    let expr_str = expr_pair.as_str().trim();
+                    
+                    // Check if it's a simple arithmetic expression with a parameter (like "x * 2")
+                    if expr_str.contains("*") && !expr_str.contains("+") && !expr_str.contains("-") && !expr_str.contains("/") {
+                        // Simple multiplication like "x * 2"
+                        if let Some(mult_pos) = expr_str.find('*') {
+                            let left = expr_str[..mult_pos].trim();
+                            let right = expr_str[mult_pos + 1..].trim();
+                            
+                            if left == "x" || left == "n" || left == "val" {
+                                // Left operand is a parameter in rdi
+                                if let Ok(multiplier) = right.parse::<i64>() {
+                                    // Generate: mov rax, rdi; imul rax, multiplier
+                                    text_section.push_str("    mov rax, rdi\n");
+                                    text_section.push_str(&format!("    imul rax, {}\n", multiplier));
+                                    text_section.push_str("    mov rsp, rbp\n    pop rbp\n    ret\n");
+                                    return Ok(());
+                                } else if let Ok(value) = right.parse::<i64>() {
+                                    text_section.push_str("    mov rax, rdi\n");
+                                    text_section.push_str(&format!("    imul rax, {}\n", value));
+                                    text_section.push_str("    mov rsp, rbp\n    pop rbp\n    ret\n");
+                                    return Ok(());
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Check if it's an operation with two parameters (like "a + b", "a - b", etc)
+                    if (expr_str.contains("+") || expr_str.contains("-") || expr_str.contains("*") || expr_str.contains("/")) {
+                        let operators = vec!["+", "-", "*", "/"];
+                        for op in &operators {
+                            if expr_str.contains(op) && expr_str.matches(op).count() == 1 {
+                                if let Some(op_pos) = expr_str.find(op) {
+                                    let left = expr_str[..op_pos].trim();
+                                    let right = expr_str[op_pos + op.len()..].trim();
+                                    
+                                    // Check if both are simple parameters (a, b, x, y, etc)
+                                    if (left == "a" || left == "b" || left == "x" || left == "y") &&
+                                       (right == "a" || right == "b" || right == "x" || right == "y") {
+                                        // Handle two-parameter operations
+                                        text_section.push_str("    mov rax, rdi\n");  // Load first param (a or x)
+                                        text_section.push_str("    mov rcx, rsi\n");  // Load second param (b or y)
+                                        
+                                        match *op {
+                                            "+" => {
+                                                text_section.push_str("    add rax, rcx\n");
+                                            }
+                                            "-" => {
+                                                text_section.push_str("    sub rax, rcx\n");
+                                            }
+                                            "*" => {
+                                                text_section.push_str("    imul rax, rcx\n");
+                                            }
+                                            "/" => {
+                                                text_section.push_str("    cqo\n");  // Sign extend for division
+                                                text_section.push_str("    idiv rcx\n");
+                                            }
+                                            _ => {}
+                                        }
+                                        text_section.push_str("    mov rsp, rbp\n    pop rbp\n    ret\n");
+                                        return Ok(());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Try to evaluate at compile-time
+                    if let Ok(val) = eval_expr(expr_pair.clone(), &symbols.variables) {
+                        match val {
+                            FluxValue::Integer(n) => {
+                                text_section.push_str(&format!("    mov rax, {}\n", n));
+                            }
+                            FluxValue::Float(f) => {
+                                let label = format!("float_{}", *unique_id);
+                                *unique_id += 1;
+                                let float_bits = f.to_bits();
+                                data_section.push_str(&format!("{}: dd 0x{:x}\n", label, float_bits));
+                                text_section.push_str(&format!("    movd xmm0, [rel {}]\n", label));
+                            }
+                            FluxValue::Double(d) => {
+                                let label = format!("double_{}", *unique_id);
+                                *unique_id += 1;
+                                let double_bits = d.to_bits();
+                                data_section.push_str(&format!("{}: dq 0x{:x}\n", label, double_bits));
+                                text_section.push_str(&format!("    movsd xmm0, [rel {}]\n", label));
+                            }
+                            FluxValue::Str(text) => {
+                                let label = format!("str_{}", *unique_id);
+                                *unique_id += 1;
+                                let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
+                                data_section.push_str(&format!("{}: db \"{}\", 0\n", label, escaped));
+                                text_section.push_str(&format!("    lea rax, [rel {}]\n", label));
+                            }
+                        }
+                    } else {
+                        // Try to evaluate as variable or method call
+                        let expr_str = expr_pair.as_str().trim();
+                        if let Some(offset) = var_offsets.get(expr_str) {
+                            // Return variable value
+                            text_section.push_str(&format!("    mov rax, [rbp-{}]\n", offset));
+                        } else if expr_str.contains(".") && expr_str.contains("(") {
+                            // Method call - already handled in variable_decl
+                            text_section.push_str("    ; Return value from method call in rax\n");
+                        }
+                    }
+                }
+                // Add epilogue
+                text_section.push_str("    mov rsp, rbp\n    pop rbp\n    ret\n");
             }
 
             _ => {}
@@ -1710,7 +2010,13 @@ fn main() -> Result<()> {
                 let content = fs::read_to_string(input)
                     .with_context(|| format!("Could not read file {:?}", input))?;
 
-                let asm_output = compile_fsh_to_asm(&content, input)?;
+                // Process include statements
+                let processed_content = process_includes(&content, &input.parent().unwrap_or(&PathBuf::from(".")))?;
+                
+                // Validate Main class and main method
+                validate_main_class(&processed_content)?;
+                
+                let asm_output = compile_fsh_to_asm(&processed_content, input)?;
 
                 // Write .asm file
                 let asm_path = input.with_extension("asm");

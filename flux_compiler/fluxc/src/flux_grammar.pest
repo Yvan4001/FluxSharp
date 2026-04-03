@@ -158,5 +158,5 @@ statement = _{
     | function_call
 }
 
-// File root
-file = { SOI ~ (const_decl | struct_def | class_def | function)* ~ EOI }
+// File root - Only classes and structs allowed (no global functions)
+file = { SOI ~ (const_decl | struct_def | class_def)* ~ EOI }
