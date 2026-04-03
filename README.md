@@ -39,47 +39,144 @@ class Main {
 
 ## 📚 Documentation
 
-**Start Here:**
-- 📖 [QUICKSTART.md](docs/QUICKSTART.md) - 5-minute tutorial
-- ❓ [ERROR_GUIDE.md](docs/ERROR_GUIDE.md) - Understanding errors
+### 🎯 **New: Organized Documentation System**
+📖 **[Complete Documentation Index](docs/INDEX.md)** - Start here for navigation!
 
-**Language Reference:**
-- 🔤 [SYNTAX.md](docs/SYNTAX.md) - Language syntax
-- 📋 [TYPES.md](docs/TYPES.md) - All data types
-- 📦 [VARIABLES.md](docs/VARIABLES.md) - Variables and constants
-- ⚙️ [OPERATORS.md](docs/OPERATORS.md) - Operators guide
-- 📜 [FUNCTIONS.md](docs/FUNCTIONS.md) - Function definitions
-- 🏛️ [CLASSES.md](docs/CLASSES.md) - OOP with classes
-- 🔄 [CONTROL_FLOW.md](docs/CONTROL_FLOW.md) - Loops and conditions
-- 📊 [ARRAYS.md](docs/ARRAYS.md) - Array operations
-- 🔧 [STDLIB.md](docs/STDLIB.md) - Built-in functions
-- ⏱️ [ASYNC_AWAIT.md](docs/ASYNC_AWAIT.md) - Async programming
+Our documentation is now organized into **5 categories** for easy navigation:
+
+#### 🚀 **[Quick Start](docs/01-quickstart/)** (5-10 min read)
+Get started in minutes:
+- [README.md](docs/01-quickstart/README.md) - Overview and first steps
+- [QUICKSTART.md](docs/01-quickstart/QUICKSTART.md) - Quick reference guide
+
+#### 📖 **[Language Reference](docs/02-language/)** (45-60 min read)
+Learn FluxSharp syntax and features:
+- [SYNTAX.md](docs/02-language/SYNTAX.md) - Complete syntax guide
+- [TYPES.md](docs/02-language/TYPES.md) - Type system
+- [VARIABLES.md](docs/02-language/VARIABLES.md) - Variables and declarations
+- [OPERATORS.md](docs/02-language/OPERATORS.md) - All operators
+- [FUNCTIONS.md](docs/02-language/FUNCTIONS.md) - Function definitions and calls
+- [CLASSES.md](docs/02-language/CLASSES.md) - Object-oriented programming
+- [ARRAYS.md](docs/02-language/ARRAYS.md) - Array handling
+- [CONTROL_FLOW.md](docs/02-language/CONTROL_FLOW.md) - If/else, loops, conditions
+
+#### 🎓 **[Advanced Topics](docs/03-advanced/)** (20-30 min read)
+Deep dive into advanced features:
+- [ASYNC_AWAIT.md](docs/03-advanced/ASYNC_AWAIT.md) - Asynchronous programming
+- [CSHARP_IMPORTS_UPDATE.md](docs/03-advanced/CSHARP_IMPORTS_UPDATE.md) - Import system and modules
+
+#### 🔧 **[Compiler Guide](docs/04-compiler/)** (25-35 min read)
+How to use and understand the compiler:
+- [BUILD_SYSTEM.md](docs/04-compiler/BUILD_SYSTEM.md) - Build system and compilation
+- [ERROR_GUIDE.md](docs/04-compiler/ERROR_GUIDE.md) - Debugging guide
+- [COMPILER_ERRORS.md](docs/04-compiler/COMPILER_ERRORS.md) - Error messages explained
+- [ERROR_MESSAGES_IMPLEMENTATION.md](docs/04-compiler/ERROR_MESSAGES_IMPLEMENTATION.md) - Implementation details
+- [INCLUDES_AND_MAIN.md](docs/04-compiler/INCLUDES_AND_MAIN.md) - Include processing and main class
+
+#### 📋 **[Reference & Reports](docs/05-reference/)** (30-45 min read)
+Technical reference and project reports:
+- [STDLIB.md](docs/05-reference/STDLIB.md) - Standard library functions
+- [BEFORE_AFTER_COMPARISON.md](docs/05-reference/BEFORE_AFTER_COMPARISON.md) - Version comparison
+- [CHANGES_SUMMARY.md](docs/05-reference/CHANGES_SUMMARY.md) - Change history
+- [IMPLEMENTATION_SUMMARY.md](docs/05-reference/IMPLEMENTATION_SUMMARY.md) - Technical implementation
+- [VERIFICATION_REPORT.md](docs/05-reference/VERIFICATION_REPORT.md) - Verification and testing results
+
+### 📊 Quick Links by Task
+
+| I want to... | Read this |
+|-------------|-----------|
+| **Get started** | [01-quickstart/README.md](docs/01-quickstart/README.md) |
+| **Learn syntax** | [02-language/SYNTAX.md](docs/02-language/SYNTAX.md) |
+| **Understand types** | [02-language/TYPES.md](docs/02-language/TYPES.md) |
+| **Define functions** | [02-language/FUNCTIONS.md](docs/02-language/FUNCTIONS.md) |
+| **Use classes** | [02-language/CLASSES.md](docs/02-language/CLASSES.md) |
+| **Work with arrays** | [02-language/ARRAYS.md](docs/02-language/ARRAYS.md) |
+| **Control flow** | [02-language/CONTROL_FLOW.md](docs/02-language/CONTROL_FLOW.md) |
+| **Fix errors** | [04-compiler/ERROR_GUIDE.md](docs/04-compiler/ERROR_GUIDE.md) |
+| **Use imports** | [03-advanced/CSHARP_IMPORTS_UPDATE.md](docs/03-advanced/CSHARP_IMPORTS_UPDATE.md) |
+| **Async programming** | [03-advanced/ASYNC_AWAIT.md](docs/03-advanced/ASYNC_AWAIT.md) |
+| **See all changes** | [05-reference/CHANGES_SUMMARY.md](docs/05-reference/CHANGES_SUMMARY.md) |
+| **Standard library** | [05-reference/STDLIB.md](docs/05-reference/STDLIB.md) |
+
+### 🛤️ Suggested Reading Paths
+
+**For Beginners (1.5 hours):**
+1. [01-quickstart/README.md](docs/01-quickstart/README.md)
+2. [02-language/SYNTAX.md](docs/02-language/SYNTAX.md)
+3. [02-language/FUNCTIONS.md](docs/02-language/FUNCTIONS.md)
+4. [02-language/CLASSES.md](docs/02-language/CLASSES.md)
+5. [04-compiler/BUILD_SYSTEM.md](docs/04-compiler/BUILD_SYSTEM.md)
+
+**For Intermediate Users (2 hours):**
+1. [02-language/CONTROL_FLOW.md](docs/02-language/CONTROL_FLOW.md)
+2. [02-language/ARRAYS.md](docs/02-language/ARRAYS.md)
+3. [02-language/OPERATORS.md](docs/02-language/OPERATORS.md)
+4. [03-advanced/CSHARP_IMPORTS_UPDATE.md](docs/03-advanced/CSHARP_IMPORTS_UPDATE.md)
+5. [04-compiler/ERROR_GUIDE.md](docs/04-compiler/ERROR_GUIDE.md)
+
+**For Advanced Users (2.5 hours):**
+1. [05-reference/IMPLEMENTATION_SUMMARY.md](docs/05-reference/IMPLEMENTATION_SUMMARY.md)
+2. [05-reference/VERIFICATION_REPORT.md](docs/05-reference/VERIFICATION_REPORT.md)
+3. [05-reference/CHANGES_SUMMARY.md](docs/05-reference/CHANGES_SUMMARY.md)
+4. [04-compiler/COMPILER_ERRORS.md](docs/04-compiler/COMPILER_ERRORS.md)
+5. [03-advanced/ASYNC_AWAIT.md](docs/03-advanced/ASYNC_AWAIT.md)
 
 ## 📂 Project Layout
 
 ```
 FluxSharp/
-├── main.fsh                 # Example program
-├── build.sh                 # Build script
-├── README.md               # This file
+├── main.fsh                       # Example program
+├── build.sh                       # Build script
+├── README.md                      # This file
 ├── LICENSE
 │
-├── flux_compiler/          # Rust compiler source
+├── flux_compiler/                 # Rust compiler source
 │   ├── fluxc/src/
-│   │   ├── main.rs        # Compiler implementation  
+│   │   ├── main.rs               # Compiler implementation  
 │   │   ├── error_handler.rs
 │   │   └── flux_grammar.pest
-│   └── target/release/fluxc  # Compiled compiler
+│   └── target/release/fluxc       # Compiled compiler
 │
-├── docs/                   # Documentation (13 guides)
-│   ├── QUICKSTART.md
-│   ├── ERROR_GUIDE.md
-│   └── ... (more guides)
+├── docs/                          # Complete Documentation (22 files)
+│   ├── INDEX.md                   # 📖 START HERE - Documentation index
+│   │
+│   ├── 01-quickstart/             # 🚀 Get started in 5-10 minutes
+│   │   ├── README.md
+│   │   └── QUICKSTART.md
+│   │
+│   ├── 02-language/               # 📖 Language reference (8 guides)
+│   │   ├── SYNTAX.md
+│   │   ├── TYPES.md
+│   │   ├── VARIABLES.md
+│   │   ├── OPERATORS.md
+│   │   ├── FUNCTIONS.md
+│   │   ├── CLASSES.md
+│   │   ├── ARRAYS.md
+│   │   └── CONTROL_FLOW.md
+│   │
+│   ├── 03-advanced/               # 🎓 Advanced topics (2 guides)
+│   │   ├── ASYNC_AWAIT.md
+│   │   └── CSHARP_IMPORTS_UPDATE.md
+│   │
+│   ├── 04-compiler/               # 🔧 Build & compiler (5 guides)
+│   │   ├── BUILD_SYSTEM.md
+│   │   ├── ERROR_GUIDE.md
+│   │   ├── COMPILER_ERRORS.md
+│   │   ├── ERROR_MESSAGES_IMPLEMENTATION.md
+│   │   └── INCLUDES_AND_MAIN.md
+│   │
+│   └── 05-reference/              # 📋 Technical reference (5 guides)
+│       ├── STDLIB.md
+│       ├── BEFORE_AFTER_COMPARISON.md
+│       ├── CHANGES_SUMMARY.md
+│       ├── IMPLEMENTATION_SUMMARY.md
+│       └── VERIFICATION_REPORT.md
 │
-└── examples/               # Example programs
+└── examples/                      # Example programs
     ├── hello.fsh
     ├── calculator.fsh
-    └── arrays.fsh
+    ├── arrays.fsh
+    └── ... (more examples)
 ```
 
 ## 🎯 Basic Examples
@@ -205,7 +302,7 @@ int x = 10;
 print(x);
 ```
 
-**See [ERROR_GUIDE.md](docs/ERROR_GUIDE.md) for all error types.**
+**See [04-compiler/ERROR_GUIDE.md](docs/04-compiler/ERROR_GUIDE.md) for all error types.**
 
 ## 📖 Type System
 
@@ -273,15 +370,16 @@ MIT License - See [LICENSE](LICENSE)
 
 ## 🚀 Next Steps
 
-1. **Read** - Start with [QUICKSTART.md](docs/QUICKSTART.md)
-2. **Try** - Modify `main.fsh` and run `./build.sh`
-3. **Explore** - Check out `examples/` directory
-4. **Learn** - Read language guides in `docs/`
-5. **Build** - Create your own FluxSharp programs!
+1. **Navigate** - Start with [docs/INDEX.md](docs/INDEX.md) for the complete documentation structure
+2. **Read** - Choose your path: [Beginner](docs/01-quickstart/README.md) | [Intermediate](docs/02-language/OPERATORS.md) | [Advanced](docs/05-reference/IMPLEMENTATION_SUMMARY.md)
+3. **Try** - Modify `main.fsh` and run `./build.sh`
+4. **Explore** - Check out `examples/` directory
+5. **Learn** - Read language guides in `docs/02-language/`
+6. **Build** - Create your own FluxSharp programs!
 
 ---
 
 **Happy coding!** 🎉
 
-For questions or issues, check the [documentation](docs/) first.
+📖 **[Start with the Documentation Index](docs/INDEX.md)** for easy navigation through all 22 documentation files organized in 5 categories!
 
