@@ -8,6 +8,8 @@ use pest_derive::Parser as PestDeriveParser;
 use std::time::Duration;
 use std::env;
 
+mod error_handler;
+
 // ===== SECURITY CONSTRAINTS =====
 const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;  // 50 MB
 const MAX_ASM_OUTPUT_SIZE: usize = 100 * 1024 * 1024;  // 100 MB
@@ -118,14 +120,152 @@ fn validate_input_path(path: &Path) -> Result<()> {
 #[grammar = "flux_grammar.pest"]
 pub struct FluxParser;
 
+/// Analyze content for common syntax errors and provide helpful messages
+fn detect_common_errors(content: &str) -> Option<String> {
+    let lines: Vec<&str> = content.lines().collect();
+    
+    for (line_idx, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        
+        // Skip empty lines and comments
+        if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("/*") {
+            continue;
+        }
+        
+        // Ignore lines that have comments - they might actually end correctly
+        let trimmed_no_comment = if let Some(comment_pos) = trimmed.find("//") {
+            &trimmed[..comment_pos].trim()
+        } else {
+            trimmed
+        };
+        
+        // Check for missing semicolon at end of line (common statements)
+        if (trimmed_no_comment.contains("=") || trimmed_no_comment.contains("(") || trimmed_no_comment.contains("[")) 
+            && !trimmed_no_comment.ends_with(";") 
+            && !trimmed_no_comment.ends_with("{") 
+            && !trimmed_no_comment.ends_with("}")
+            && !trimmed_no_comment.ends_with(",")
+            && !trimmed_no_comment.starts_with("for")
+            && !trimmed_no_comment.starts_with("while")
+            && !trimmed_no_comment.starts_with("if")
+        {
+            // Check if this looks like a statement that should end with semicolon
+            if !trimmed_no_comment.contains("if ") && !trimmed_no_comment.contains("else") && !trimmed_no_comment.contains("for ")
+                && !trimmed_no_comment.contains("while ") && !trimmed_no_comment.contains("class ") && !trimmed_no_comment.contains("struct ")
+                && !trimmed_no_comment.contains("function ") && !trimmed_no_comment.contains("=>")
+            {
+                return Some(format!(
+                    "❌ POSSIBLE SYNTAX ERROR at line {}:\n  {}\n  \
+                    Hint: Statement appears to be missing a semicolon (;) at the end\n  \
+                    Expected format: {};\n",
+                    line_idx + 1,
+                    line,
+                    trimmed_no_comment
+                ));
+            }
+        }
+        
+        // Check for float literal format errors (must end with 'f' or 'F')
+        if let Some(dot_pos) = line.find('.') {
+            let after_dot = &line[dot_pos+1..];
+            if let Some(end_of_num) = after_dot.find(|c: char| !c.is_numeric() && c != 'f' && c != 'F') {
+                let num_part = &after_dot[..end_of_num];
+                if num_part.chars().all(|c| c.is_numeric()) {
+                    let before_dot = &line[..dot_pos];
+                    if before_dot.chars().last().map_or(false, |c| c.is_numeric()) {
+                        let next_char = after_dot.chars().next();
+                        if next_char != Some('f') && next_char != Some('F') && !next_char.map_or(false, |c| c.is_whitespace()) {
+                            return Some(format!(
+                                "⚠️  FLOAT LITERAL ERROR at line {}:\n  {}\n  \
+                                Hint: Float literals must end with 'f' or 'F'\n  \
+                                Correct format: 3.14f or 3.14F\n",
+                                line_idx + 1,
+                                line
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Check for unclosed parentheses
+        let open_parens = line.matches('(').count();
+        let close_parens = line.matches(')').count();
+        if open_parens > close_parens {
+            return Some(format!(
+                "❌ UNMATCHED PARENTHESIS at line {}:\n  {}\n  \
+                Hint: Found {} opening '(' but only {} closing ')'\n",
+                line_idx + 1,
+                line,
+                open_parens,
+                close_parens
+            ));
+        }
+        
+        // Check for unclosed brackets
+        let open_brackets = line.matches('[').count();
+        let close_brackets = line.matches(']').count();
+        if open_brackets > close_brackets {
+            return Some(format!(
+                "❌ UNMATCHED BRACKET at line {}:\n  {}\n  \
+                Hint: Found {} opening '[' but only {} closing ']'\n",
+                line_idx + 1,
+                line,
+                open_brackets,
+                close_brackets
+            ));
+        }
+    }
+    
+    None
+}
+
 /// Compile a single .fsh source into NASM x86_64 assembly string
 fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
     let source_lines: Vec<&str> = content.lines().collect();
 
+    // First, check for common syntax errors
+    if let Some(error_msg) = detect_common_errors(content) {
+        eprintln!("{}", error_msg);
+    }
+
     let file = FluxParser::parse(Rule::file, content)
-        .with_context(|| "Syntax Error (check your .fsh file)")?
+        .map_err(|e| {
+            eprintln!("\n🔴 COMPILATION FAILED\n");
+            eprintln!("Error: {}", e);
+            
+            // Try to extract line number from error
+            let error_str = e.to_string();
+            if let Some(line_info) = error_str.split("line ").nth(1) {
+                if let Some(line_num_str) = line_info.split(|c: char| !c.is_numeric()).next() {
+                    if let Ok(line_num) = line_num_str.parse::<usize>() {
+                        if line_num > 0 && line_num <= source_lines.len() {
+                            let problem_line = source_lines[line_num - 1];
+                            eprintln!("\n📍 Problem at line {}:", line_num);
+                            eprintln!("  > {}", problem_line);
+                            
+                            // Provide hints based on the error
+                            if !problem_line.trim().ends_with(";") && 
+                               !problem_line.trim().ends_with("{") && 
+                               !problem_line.trim().ends_with("}") {
+                                eprintln!("\n💡 Hint: Did you forget a semicolon (;) at the end of this line?");
+                            }
+                            
+                            if problem_line.contains("=") && !problem_line.contains("==") 
+                               && !problem_line.contains("!=") && !problem_line.contains("<=") 
+                               && !problem_line.contains(">=") {
+                                eprintln!("\n💡 Hint: Check variable initialization syntax");
+                                eprintln!("   Correct: int x = 10;");
+                                eprintln!("   Correct: int y = 3.14f;");
+                            }
+                        }
+                    }
+                }
+            }
+            anyhow::anyhow!("Syntax error in file: {:?}", source_path)
+        })?
         .next()
-        .ok_or_else(|| anyhow::anyhow!("Empty file"))?;
+        .ok_or_else(|| anyhow::anyhow!("Empty file: {:?}", source_path))?;
 
     let mut symbols = SymbolTable {
         variables: HashMap::new(),
@@ -712,15 +852,18 @@ fn compile_block_with_loop_context(
                                             offset
                                         ));
                                     } else {
-                                        text_section.push_str(&format!("    ; ERROR {} arg eval: variable not found\n", callee));
+                                        // Better error message with the actual variable name
+                                        eprintln!("⚠️  WARNING: Undefined variable '{}' used in function call '{}'", var_name, callee);
+                                        text_section.push_str(&format!("    ; ❌ ERROR: Undefined variable '{}' in call to {}\n", var_name, callee));
                                     }
                                 } else {
-                                    text_section.push_str(&format!("    ; ERROR {} arg eval: complex expression not supported\n", callee));
+                                    eprintln!("⚠️  WARNING: Complex expression not fully supported in function arguments for '{}'", callee);
+                                    text_section.push_str(&format!("    ; ❌ ERROR: Complex expression not supported in argument for {}\n", callee));
                                 }
                             }
                         }
                     } else {
-                        text_section.push_str(&format!("    ; WARNING {} called without argument\n", callee));
+                        text_section.push_str(&format!("    ; ⚠️  WARNING: Function '{}' called without required arguments\n", callee));
                     }
                 } else if let Some(obj) = object_name {
                     // Method call on object - generate a call to the method
@@ -1215,34 +1358,34 @@ fn eval_expr(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue
                         l / *r as f64
                     },
                     "%" => {
-                        if *r == 0.0 { anyhow::bail!("Modulo by zero"); }
+                        if *r == 0.0 { anyhow::bail!("⚠️  Division by zero error in arithmetic operation"); }
                         l % (*r as f64)
                     },
-                    _ => anyhow::bail!("Unknown operator: {}", op),
+                    _ => anyhow::bail!("Unknown operator '{}' in arithmetic expression", op),
                 })
             }
             (FluxValue::Str(l), FluxValue::Str(r)) => {
                 if op == "+" {
                     FluxValue::Str(format!("{}{}", l, r))
                 } else {
-                    anyhow::bail!("Unsupported operator {} on strings", op)
+                    anyhow::bail!("❌ Unsupported operator '{}' on strings. Only concatenation (+) is supported.", op)
                 }
             }
             (FluxValue::Str(l), FluxValue::Integer(r)) => {
                 if op == "+" {
                     FluxValue::Str(format!("{}{}", l, r))
                 } else {
-                    anyhow::bail!("Unsupported operator {} between string and integer", op)
+                    anyhow::bail!("❌ Invalid operation '{}' between string and integer.\n   Hint: Use string concatenation (+) to combine types.", op)
                 }
             }
             (FluxValue::Integer(l), FluxValue::Str(r)) => {
                 if op == "+" {
                     FluxValue::Str(format!("{}{}", l, r))
                 } else {
-                    anyhow::bail!("Unsupported operator {} between integer and string", op)
+                    anyhow::bail!("❌ Invalid operation '{}' between integer and string.\n   Hint: Use string concatenation (+) to combine types.", op)
                 }
             }
-            _ => anyhow::bail!("Arithmetic on non-numeric values"),
+            _ => anyhow::bail!("❌ Type error: Cannot perform arithmetic on incompatible types.\n   Check that both operands are numeric (int, float, double) for arithmetic operations."),
         };
     }
 
@@ -1337,7 +1480,7 @@ fn eval_primary(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxVa
             }
             vars.get(name)
                 .cloned()
-                .ok_or_else(|| anyhow::anyhow!("Undefined variable: '{}'", name))
+                .ok_or_else(|| anyhow::anyhow!("❌ Undefined variable: '{}'\n   Make sure this variable is declared before use with: type {} = value;", name, name))
         }
         Rule::function_call => {
             // Handle function calls in expressions
@@ -1363,23 +1506,23 @@ fn eval_primary(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxVa
                         FluxValue::Integer(n) => Ok(FluxValue::Integer(n.abs())),
                         FluxValue::Float(f) => Ok(FluxValue::Float(f.abs())),
                         FluxValue::Double(d) => Ok(FluxValue::Double(d.abs())),
-                        _ => bail!("abs() requires numeric argument"),
+                        _ => bail!("⚠️  Type Error: abs() requires a numeric argument (int, float, or double)\n   Example: abs(-42), abs(-3.14f)"),
                     }
                 }
                 "max" => {
                     if args.len() != 2 {
-                        bail!("max() requires 2 arguments, got {}", args.len());
+                        bail!("❌ Function Error: max() requires exactly 2 arguments, but got {}\n   Usage: max(value1, value2)", args.len());
                     }
                     match (&args[0], &args[1]) {
                         (FluxValue::Integer(a), FluxValue::Integer(b)) => Ok(FluxValue::Integer(*a.max(b))),
                         (FluxValue::Float(a), FluxValue::Float(b)) => Ok(FluxValue::Float(a.max(*b))),
                         (FluxValue::Double(a), FluxValue::Double(b)) => Ok(FluxValue::Double(a.max(*b))),
-                        _ => bail!("max() requires numeric arguments"),
+                        _ => bail!("⚠️  Type Error: max() requires both arguments to be the same numeric type\n   Use: max(intA, intB), max(floatA, floatB), or max(doubleA, doubleB)"),
                     }
                 }
                 "min" => {
                     if args.len() != 2 {
-                        bail!("min() requires 2 arguments, got {}", args.len());
+                        bail!("❌ Function Error: min() requires exactly 2 arguments, but got {}\n   Usage: min(value1, value2)", args.len());
                     }
                     match (&args[0], &args[1]) {
                         (FluxValue::Integer(a), FluxValue::Integer(b)) => Ok(FluxValue::Integer(*a.min(b))),
@@ -1390,7 +1533,7 @@ fn eval_primary(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxVa
                 }
                 "pow" => {
                     if args.len() != 2 {
-                        bail!("pow() requires 2 arguments, got {}", args.len());
+                        bail!("❌ Function Error: pow() requires exactly 2 arguments, but got {}\n   Usage: pow(base, exponent)", args.len());
                     }
                     match (&args[0], &args[1]) {
                         (FluxValue::Integer(a), FluxValue::Integer(b)) => {
@@ -1398,12 +1541,12 @@ fn eval_primary(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxVa
                         }
                         (FluxValue::Float(a), FluxValue::Float(b)) => Ok(FluxValue::Float(a.powf(*b))),
                         (FluxValue::Double(a), FluxValue::Double(b)) => Ok(FluxValue::Double(a.powf(*b))),
-                        _ => bail!("pow() requires numeric arguments"),
+                        _ => bail!("⚠️  Type Error: pow() requires both arguments to be numeric types\n   Example: pow(2, 3), pow(2.0f, 3.0f)"),
                     }
                 }
                 "floor" => {
                     if args.len() != 1 {
-                        bail!("floor() requires 1 argument, got {}", args.len());
+                        bail!("❌ Function Error: floor() requires exactly 1 argument, but got {}\n   Usage: floor(value)", args.len());
                     }
                     match &args[0] {
                         FluxValue::Float(f) => Ok(FluxValue::Float(f.floor())),
@@ -1414,41 +1557,41 @@ fn eval_primary(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxVa
                 }
                 "ceil" => {
                     if args.len() != 1 {
-                        bail!("ceil() requires 1 argument, got {}", args.len());
+                        bail!("❌ Function Error: ceil() requires exactly 1 argument, but got {}\n   Usage: ceil(value)", args.len());
                     }
                     match &args[0] {
                         FluxValue::Float(f) => Ok(FluxValue::Float(f.ceil())),
                         FluxValue::Double(d) => Ok(FluxValue::Double(d.ceil())),
                         FluxValue::Integer(i) => Ok(FluxValue::Integer(*i)),
-                        _ => bail!("ceil() requires numeric argument"),
+                        _ => bail!("⚠️  Type Error: ceil() requires a numeric argument (int, float, or double)\n   Example: ceil(3.14f)"),
                     }
                 }
                 "round" => {
                     if args.len() != 1 {
-                        bail!("round() requires 1 argument, got {}", args.len());
+                        bail!("❌ Function Error: round() requires exactly 1 argument, but got {}\n   Usage: round(value)", args.len());
                     }
                     match &args[0] {
                         FluxValue::Float(f) => Ok(FluxValue::Float(f.round())),
                         FluxValue::Double(d) => Ok(FluxValue::Double(d.round())),
                         FluxValue::Integer(i) => Ok(FluxValue::Integer(*i)),
-                        _ => bail!("round() requires numeric argument"),
+                        _ => bail!("⚠️  Type Error: round() requires a numeric argument (int, float, or double)\n   Example: round(3.14f)"),
                     }
                 }
                 "sqrt" => {
                     if args.len() != 1 {
-                        bail!("sqrt() requires 1 argument, got {}", args.len());
+                        bail!("❌ Function Error: sqrt() requires exactly 1 argument, but got {}\n   Usage: sqrt(value)", args.len());
                     }
                     match &args[0] {
                         FluxValue::Float(f) => Ok(FluxValue::Float(f.sqrt())),
                         FluxValue::Double(d) => Ok(FluxValue::Double(d.sqrt())),
                         FluxValue::Integer(i) => Ok(FluxValue::Double((*i as f64).sqrt())),
-                        _ => bail!("sqrt() requires numeric argument"),
+                        _ => bail!("⚠️  Type Error: sqrt() requires a numeric argument (int, float, or double)\n   Example: sqrt(16), sqrt(16.0)"),
                     }
                 }
-                _ => bail!("Unknown function: {}", func_name_str),
+                _ => bail!("❌ Undefined function: '{}'\n   Available math functions: abs, max, min, pow, floor, ceil, round, sqrt", func_name_str),
             }
         }
-        _ => bail!("Unexpected primary rule: {:?}", inner.as_rule()),
+        _ => bail!("❌ Unexpected expression type in evaluation"),
     }
 }
 
