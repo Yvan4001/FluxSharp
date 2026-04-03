@@ -10,6 +10,7 @@ use std::env;
 
 mod error_handler;
 mod bounds_checker;
+mod advanced_security;
 
 // ===== SECURITY CONSTRAINTS =====
 const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;  // 50 MB
