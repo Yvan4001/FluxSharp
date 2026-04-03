@@ -1,257 +1,287 @@
-# FluxSharp Programming Language
+# 🚀 FluxSharp Programming Language
 
-Modern, efficient, and easy-to-use programming language with async/await support.
+**FluxSharp** is a modern, expressive programming language compiled to x86-64 assembly. It features clean syntax, object-oriented programming, and rich standard library functions.
 
-## Quick Start - One Command!
+## ✨ Features
 
-### Compile and Run Default File
+- **Object-Oriented** - Classes, methods, properties
+- **Type Safe** - Static typing (int, float, double, string, bool, etc.)
+- **Math Functions** - abs, max, min, pow, sqrt, floor, ceil, round
+- **Control Flow** - if/else, for, while with break/continue
+- **Arrays** - Fixed-size arrays with indexing
+- **Functions** - User-defined and built-in
+- **Clear Errors** - Helpful compiler error messages in English
 
+## 🏃 Quick Start (5 minutes)
+
+### 1. Build the Compiler
 ```bash
-./build.sh
+cd flux_compiler
+cargo build --release
+cd ..
 ```
 
-Compiles `main.fsh` and runs the resulting executable.
+### 2. Create Your Program
+Create `program.fsh`:
+```rust
+class Main {
+    public void main() {
+        int result = max(10, 20);
+        print(result);  // Output: 20
+    }
+}
+```
 
-### Compile and Run Any File
-
+### 3. Compile and Run
 ```bash
-./build.sh path/to/file.fsh
+./build.sh program.fsh
 ```
 
-Automatically creates a binary with the same name and runs it.
+## 📚 Documentation
 
-## Usage Examples
+**Start Here:**
+- 📖 [QUICKSTART.md](docs/QUICKSTART.md) - 5-minute tutorial
+- ❓ [ERROR_GUIDE.md](docs/ERROR_GUIDE.md) - Understanding errors
 
-### Compile and Run Examples
+**Language Reference:**
+- 🔤 [SYNTAX.md](docs/SYNTAX.md) - Language syntax
+- 📋 [TYPES.md](docs/TYPES.md) - All data types
+- 📦 [VARIABLES.md](docs/VARIABLES.md) - Variables and constants
+- ⚙️ [OPERATORS.md](docs/OPERATORS.md) - Operators guide
+- 📜 [FUNCTIONS.md](docs/FUNCTIONS.md) - Function definitions
+- 🏛️ [CLASSES.md](docs/CLASSES.md) - OOP with classes
+- 🔄 [CONTROL_FLOW.md](docs/CONTROL_FLOW.md) - Loops and conditions
+- 📊 [ARRAYS.md](docs/ARRAYS.md) - Array operations
+- 🔧 [STDLIB.md](docs/STDLIB.md) - Built-in functions
+- ⏱️ [ASYNC_AWAIT.md](docs/ASYNC_AWAIT.md) - Async programming
 
-```bash
-./build.sh examples/hello.fsh        # Hello world
-./build.sh examples/calculator.fsh   # OOP example
-./build.sh examples/arrays.fsh       # Arrays example
-```
-
-### Compile Custom Files
-
-```bash
-./build.sh src/my_program.fsh
-./build.sh utils/helper.fsh
-./build.sh my_app.fsh
-```
-
-## Dynamic Build System
-
-✅ **Compile any file** - `./build.sh file.fsh`  
-✅ **Auto binary naming** - Creates `file` from `file.fsh`  
-✅ **Directory support** - Binary in same folder as source  
-✅ **Instant execution** - Runs immediately after build  
-✅ **Fast builds** - Compiler cached after first use  
-✅ **Clear feedback** - Shows each build step  
-
-## One-Step Workflow
-
-```
-1. Edit: nano file.fsh
-2. Build: ./build.sh file.fsh
-3. See output
-4. Repeat
-```
-
-Simple and effective!
-
-## Complete Build Process
-
-The script handles everything:
-
-1. **Checks dependencies** - Verifies cargo installed
-2. **Builds compiler** (first time only, ~3 seconds, then cached)
-3. **Compiles code** - `.fsh` → `.asm` assembly
-4. **Assembles** - `.asm` → `.o` machine code
-5. **Links** - Creates executable with runtime
-6. **Executes** - Runs the program automatically
-
-## Project Structure
+## 📂 Project Layout
 
 ```
 FluxSharp/
-├── build.sh                  # ← Use this to compile any file
-├── main.fsh                  # Default program
-├── main                      # Compiled executable
-├── Makefile                  # Alternative build system
+├── main.fsh                 # Example program
+├── build.sh                 # Build script
+├── README.md               # This file
+├── LICENSE
 │
-├── examples/                 # Ready-to-compile examples
-│   ├── hello.fsh            # Simple hello world
-│   ├── calculator.fsh       # OOP with classes
-│   ├── arrays.fsh           # Array operations
-│   └── [compiled binaries]
+├── flux_compiler/          # Rust compiler source
+│   ├── fluxc/src/
+│   │   ├── main.rs        # Compiler implementation  
+│   │   ├── error_handler.rs
+│   │   └── flux_grammar.pest
+│   └── target/release/fluxc  # Compiled compiler
 │
-├── flux_compiler/           # Rust compiler
-│   └── fluxc/
-│       ├── src/main.rs
-│       └── target/release/fluxc
-│
-├── docs/                    # Documentation
+├── docs/                   # Documentation (13 guides)
 │   ├── QUICKSTART.md
-│   ├── SYNTAX.md
-│   ├── BUILD_SYSTEM.md
-│   ├── TYPES.md
-│   ├── FUNCTIONS.md
-│   └── [8+ more files]
+│   ├── ERROR_GUIDE.md
+│   └── ... (more guides)
 │
-└── [Other files]
+└── examples/               # Example programs
+    ├── hello.fsh
+    ├── calculator.fsh
+    └── arrays.fsh
 ```
 
-## Language Features
+## 🎯 Basic Examples
 
-FluxSharp includes:
-
-- **Static typing** - Types: `int`, `uint`, `long`, `float`, `double`, `byte`, `string`, `bool`, `void`
-- **Functions** - Public, private, static, async functions
-- **Classes** - Full OOP with `new` keyword
-- **Structs** - Lightweight data structures
-- **Arrays** - Fixed-size arrays with dynamic indexing
-- **Control Flow** - if/else, while, for loops
-- **Operators** - Arithmetic, bitwise, logical, comparison
-- **Async/Await** - Non-blocking concurrent code
-- **Standard Library** - Math, string, I/O functions
-
-## Examples Included
-
-### hello.fsh - Simple Output
-```flux
-public static void Main() {
-    print("Hello from FluxSharp!");
-    return;
-}
-```
-Run: `./build.sh examples/hello.fsh`
-
-### calculator.fsh - Classes with OOP
-```flux
-public class Calculator {
-    public int Add(int a, int b) {
-        return a + b;
+### Hello World
+```rust
+class Main {
+    public void main() {
+        print("Hello, World!");
     }
 }
-
-Calculator calc = new Calculator();
-int result = calc.Add(5, 3);
 ```
-Run: `./build.sh examples/calculator.fsh`
 
-### arrays.fsh - Array Operations
-```flux
-int[10] numbers;
+### Variables
+```rust
+int count = 42;
+float price = 19.99f;
+double ratio = 3.14159;
+string name = "FluxSharp";
+bool active = true;
+```
+
+### Functions
+```rust
+public int multiply(int a, int b) {
+    return a * b;
+}
+```
+
+### Classes
+```rust
+class Calculator {
+    int total = 0;
+    
+    public void add(int value) {
+        total = total + value;
+    }
+    
+    public int getTotal() {
+        return total;
+    }
+}
+```
+
+### Loops
+```rust
+// For loop
+for (int i = 0; i < 10; i = i + 1) {
+    print(i);
+}
+
+// While loop
+while (x > 0) {
+    x = x - 1;
+}
+```
+
+### Arrays
+```rust
+int numbers[5];
 numbers[0] = 10;
-int first = numbers[0];
+numbers[1] = 20;
+print(numbers[0]);  // Output: 10
 ```
-Run: `./build.sh examples/arrays.fsh`
 
-## Documentation
+### Math Functions
+```rust
+int abs_value = abs(-42);      // 42
+int maximum = max(10, 20);     // 20
+int minimum = min(10, 20);     // 10
+int power = pow(2, 3);         // 8
+double root = sqrt(16.0);      // 4.0
+```
 
-Complete language documentation available:
+## 🔧 Build System
 
-| Document | Topics |
-|----------|--------|
-| **QUICKSTART.md** | Get started in 5 minutes |
-| **SYNTAX.md** | Keywords, operators, statements |
-| **TYPES.md** | All data types |
-| **FUNCTIONS.md** | Function definition and calls |
-| **CLASSES.md** | OOP and inheritance |
-| **ARRAYS.md** | Fixed-size arrays |
-| **CONTROL_FLOW.md** | If/else, loops |
-| **OPERATORS.md** | All operators |
-| **ASYNC_AWAIT.md** | Async programming |
-| **STDLIB.md** | Built-in functions |
-| **BUILD_SYSTEM.md** | Build script guide |
-
-See **[docs/](docs/)** for all documentation.
-
-## System Requirements
-
-- **OS**: Linux x86-64
-- **Rust**: 1.70+ (install: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
-- **GNU tools**: binutils (install: `sudo apt-get install binutils`)
-
-## Performance
-
-- **First run**: ~3 seconds (builds compiler)
-- **Subsequent runs**: <1 second (cached)
-- **Compilation speed**: ~0.5 seconds per file
-- **Total time**: Usually under 2 seconds
-
-## Workflow Examples
-
-### Single File Development
+The `build.sh` script handles everything:
 
 ```bash
-# Create and test your program
-./build.sh my_app.fsh
+# Build and run main.fsh
+./build.sh
 
-# Edit and recompile
-nano my_app.fsh
-./build.sh my_app.fsh
-
-# Test another version
-./build.sh my_app_v2.fsh
+# Build and run any file
+./build.sh examples/calculator.fsh
 ```
 
-### Managing Multiple Programs
+The script:
+1. Builds the Rust compiler (first time only)
+2. Compiles .fsh to assembly
+3. Assembles with NASM
+4. Links into executable
+5. Runs the program
 
+## ⚠️ Common Errors
+
+### Missing Semicolon
+```
+❌ WRONG:
+int x = 10
+print(x);
+
+✅ CORRECT:
+int x = 10;
+print(x);
+```
+
+### Float Format
+```
+❌ WRONG:
+float f = 3.14;
+
+✅ CORRECT:
+float f = 3.14f;
+```
+
+### Undefined Variable
+```
+❌ WRONG:
+print(x);           // x not declared
+
+✅ CORRECT:
+int x = 10;
+print(x);
+```
+
+**See [ERROR_GUIDE.md](docs/ERROR_GUIDE.md) for all error types.**
+
+## 📖 Type System
+
+| Type | Example | Notes |
+|------|---------|-------|
+| `int` | `42` | 64-bit integer |
+| `float` | `3.14f` | 32-bit, must have 'f' suffix |
+| `double` | `3.14` | 64-bit floating point |
+| `string` | `"hello"` | Text |
+| `bool` | `true` | Boolean |
+| `byte` | `255` | Single byte |
+| `long` | `999999` | Large integer |
+
+## 🧪 Test Your Code
+
+### Run Examples
 ```bash
-# Organize in subdirectories
-./build.sh src/main.fsh
-./build.sh src/utils.fsh
-./build.sh examples/demo.fsh
+./build.sh examples/hello.fsh
+./build.sh examples/calculator.fsh
+./build.sh examples/arrays.fsh
 ```
 
-### Examples Directory Structure
-
-```
-examples/
-├── hello.fsh
-├── hello                 # Compiled executable
-├── calculator.fsh
-├── calculator           # Compiled executable
-└── arrays.fsh
-```
-
-## Troubleshooting
-
-| Problem | Solution |
-|---------|----------|
-| `cargo: not found` | Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
-| `as: not found` | Install binutils: `sudo apt-get install binutils` |
-| File not found | Use correct relative or absolute path |
-| Syntax errors | Check [SYNTAX.md](docs/SYNTAX.md) |
-
-## Command Reference
-
+### Run Tests
 ```bash
-./build.sh                      # Compile main.fsh
-./build.sh file.fsh             # Compile specific file
-./build.sh path/to/file.fsh     # Compile in subdirectory
-./build.sh examples/hello.fsh   # Compile example
+# Compile main.fsh and see all features
+./build.sh main.fsh
 ```
 
-## Project Status
+## 🔍 Compiler Features
 
-- ✅ Compiler working
-- ✅ Full grammar implemented
-- ✅ Dynamic build system
-- ✅ Complete documentation
-- ✅ Multiple examples
-- ✅ Production ready
+### Error Detection
+- Missing semicolons ✅
+- Float literal format ✅
+- Unmatched parentheses ✅
+- Unmatched brackets ✅
+- Undefined variables ✅
+- Type mismatches ✅
 
-## Next Steps
+### All errors include:
+- ✅ Exact line number
+- ✅ Clear explanation
+- ✅ Hint on how to fix
+- ✅ Example of correct syntax
 
-1. **Try it**: `./build.sh main.fsh`
-2. **Explore**: Check `examples/` folder
-3. **Learn**: Read `docs/QUICKSTART.md`
-4. **Develop**: Create your own programs
+## 📝 File Extensions
+
+- `.fsh` - FluxSharp source code
+- `.asm` - Generated assembly (x86-64)
+- `.o` - Compiled object files
+- (no extension) - Executable binary
+
+## 🤝 Language Design
+
+FluxSharp aims to be:
+
+- **Easy to Learn** - Clear syntax similar to Java/C#
+- **Type Safe** - Compile-time type checking
+- **Efficient** - Compiles to native x86-64
+- **Helpful** - Great error messages
+- **Complete** - Rich standard library
+
+## 📄 License
+
+MIT License - See [LICENSE](LICENSE)
+
+## 🚀 Next Steps
+
+1. **Read** - Start with [QUICKSTART.md](docs/QUICKSTART.md)
+2. **Try** - Modify `main.fsh` and run `./build.sh`
+3. **Explore** - Check out `examples/` directory
+4. **Learn** - Read language guides in `docs/`
+5. **Build** - Create your own FluxSharp programs!
 
 ---
 
-**Ready to code with FluxSharp!** 🚀
+**Happy coding!** 🎉
 
-Run `./build.sh` to get started!
+For questions or issues, check the [documentation](docs/) first.
 

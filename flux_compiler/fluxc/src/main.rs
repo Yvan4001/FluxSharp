@@ -123,16 +123,31 @@ pub struct FluxParser;
 /// Analyze content for common syntax errors and provide helpful messages
 fn detect_common_errors(content: &str) -> Option<String> {
     let lines: Vec<&str> = content.lines().collect();
+    let mut in_multiline_comment = false;
     
     for (line_idx, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
         
-        // Skip empty lines and comments
-        if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("/*") {
+        // Track multi-line comment state
+        if trimmed.contains("/*") {
+            in_multiline_comment = true;
+        }
+        
+        // If we're in a multi-line comment, skip this line
+        if in_multiline_comment {
+            // Check if comment ends on this line
+            if trimmed.contains("*/") {
+                in_multiline_comment = false;
+            }
             continue;
         }
         
-        // Ignore lines that have comments - they might actually end correctly
+        // Skip empty lines and single-line comments
+        if trimmed.is_empty() || trimmed.starts_with("//") {
+            continue;
+        }
+        
+        // Ignore lines that have inline comments - they might actually end correctly
         let trimmed_no_comment = if let Some(comment_pos) = trimmed.find("//") {
             &trimmed[..comment_pos].trim()
         } else {
@@ -165,55 +180,62 @@ fn detect_common_errors(content: &str) -> Option<String> {
             }
         }
         
-        // Check for float literal format errors (must end with 'f' or 'F')
-        if let Some(dot_pos) = line.find('.') {
-            let after_dot = &line[dot_pos+1..];
-            if let Some(end_of_num) = after_dot.find(|c: char| !c.is_numeric() && c != 'f' && c != 'F') {
-                let num_part = &after_dot[..end_of_num];
-                if num_part.chars().all(|c| c.is_numeric()) {
-                    let before_dot = &line[..dot_pos];
-                    if before_dot.chars().last().map_or(false, |c| c.is_numeric()) {
-                        let next_char = after_dot.chars().next();
-                        if next_char != Some('f') && next_char != Some('F') && !next_char.map_or(false, |c| c.is_whitespace()) {
-                            return Some(format!(
-                                "⚠️  FLOAT LITERAL ERROR at line {}:\n  {}\n  \
-                                Hint: Float literals must end with 'f' or 'F'\n  \
-                                Correct format: 3.14f or 3.14F\n",
-                                line_idx + 1,
-                                line
-                            ));
+        // Check for float literal format errors (must end with 'f' or 'F' ONLY for float type, not double)
+        // Only check if this line declares a 'float' type variable
+        if trimmed_no_comment.contains("float ") && !trimmed_no_comment.contains("double") {
+            if let Some(dot_pos) = line.find('.') {
+                let after_dot = &line[dot_pos+1..];
+                if let Some(end_of_num) = after_dot.find(|c: char| !c.is_numeric() && c != 'f' && c != 'F' && c != 'e' && c != 'E') {
+                    let num_part = &after_dot[..end_of_num];
+                    if num_part.chars().all(|c| c.is_numeric()) {
+                        let before_dot = &line[..dot_pos];
+                        if before_dot.chars().last().map_or(false, |c| c.is_numeric()) {
+                            let next_char = after_dot.chars().next();
+                            // Only error if it doesn't end with 'f' or 'F' and next char is not 'e'/'E' (scientific notation for double)
+                            if next_char != Some('f') && next_char != Some('F') && next_char != Some('e') && next_char != Some('E') 
+                                && !next_char.map_or(false, |c| c.is_whitespace()) {
+                                return Some(format!(
+                                    "⚠️  FLOAT LITERAL ERROR at line {}:\n  {}\n  \
+                                    Hint: Float literals must end with 'f' or 'F'\n  \
+                                    Correct format: 3.14f or 3.14F\n",
+                                    line_idx + 1,
+                                    line
+                                ));
+                            }
                         }
                     }
                 }
             }
         }
         
-        // Check for unclosed parentheses
-        let open_parens = line.matches('(').count();
-        let close_parens = line.matches(')').count();
-        if open_parens > close_parens {
-            return Some(format!(
-                "❌ UNMATCHED PARENTHESIS at line {}:\n  {}\n  \
-                Hint: Found {} opening '(' but only {} closing ')'\n",
-                line_idx + 1,
-                line,
-                open_parens,
-                close_parens
-            ));
-        }
-        
-        // Check for unclosed brackets
-        let open_brackets = line.matches('[').count();
-        let close_brackets = line.matches(']').count();
-        if open_brackets > close_brackets {
-            return Some(format!(
-                "❌ UNMATCHED BRACKET at line {}:\n  {}\n  \
-                Hint: Found {} opening '[' but only {} closing ']'\n",
-                line_idx + 1,
-                line,
-                open_brackets,
-                close_brackets
-            ));
+        // Check for unclosed parentheses (not in comments)
+        if !trimmed_no_comment.is_empty() {
+            let open_parens = trimmed_no_comment.matches('(').count();
+            let close_parens = trimmed_no_comment.matches(')').count();
+            if open_parens > close_parens {
+                return Some(format!(
+                    "❌ UNMATCHED PARENTHESIS at line {}:\n  {}\n  \
+                    Hint: Found {} opening '(' but only {} closing ')'\n",
+                    line_idx + 1,
+                    line,
+                    open_parens,
+                    close_parens
+                ));
+            }
+            
+            // Check for unclosed brackets
+            let open_brackets = trimmed_no_comment.matches('[').count();
+            let close_brackets = trimmed_no_comment.matches(']').count();
+            if open_brackets > close_brackets {
+                return Some(format!(
+                    "❌ UNMATCHED BRACKET at line {}:\n  {}\n  \
+                    Hint: Found {} opening '[' but only {} closing ']'\n",
+                    line_idx + 1,
+                    line,
+                    open_brackets,
+                    close_brackets
+                ));
+            }
         }
     }
     

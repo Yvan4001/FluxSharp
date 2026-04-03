@@ -1,175 +1,196 @@
-# FluxSharp Quick Start
+# ⚡ Quick Start - 5 Minutes
 
-Get started with FluxSharp in 5 minutes.
+Get your first FluxSharp program running in 5 minutes!
 
-## Installation
-
-FluxSharp is already set up in your project. No additional installation needed.
-
-## Your First Program
-
-The `main.fsh` file demonstrates key features:
-
-```flux
-// Classes with new keyword
-public class Calculator {
-    public int Add(int a, int b) {
-        return a + b;
-    }
-}
-
-public static void Main() {
-    Calculator calc = new Calculator();
-    int result = calc.Add(5, 3);
-    return;
-}
-```
-
-## Build and Run
-
-### One Command to Build and Execute Everything
+## Step 1: Build the Compiler (1 minute)
 
 ```bash
-./build.sh
+cd flux_compiler
+cargo build --release
+cd ..
 ```
 
-This single command:
-1. ✅ Compiles the Rust compiler
-2. ✅ Compiles your `main.fsh` code
-3. ✅ Creates the executable
-4. ✅ Executes `./program` to show results
+This builds the FluxSharp compiler once. Future builds are fast!
 
-## Key Features
+## Step 2: Create Your First Program (1 minute)
 
-### Classes with `new`
-```flux
-public class Person {
-    public string name;
-    
-    public void Greet() {
+Create a file called `hello.fsh`:
+
+```rust
+class Main {
+    public void main() {
+        print("Hello, FluxSharp!");
+    }
+}
+```
+
+That's it! This is a complete program.
+
+## Step 3: Compile and Run (1 minute)
+
+```bash
+./build.sh hello.fsh
+```
+
+You should see:
+```
+Hello, FluxSharp!
+```
+
+🎉 **Success!** Your first FluxSharp program is running!
+
+## Now Let's Add Variables (1 minute)
+
+Update `hello.fsh`:
+
+```rust
+class Main {
+    public void main() {
+        int age = 25;
+        string name = "Alice";
+        
+        print("Hello, ");
         print(name);
-        return;
+        print("!");
     }
 }
-
-Person p = new Person();
-p.name = "Alice";
-p.Greet();
 ```
 
-### Array Access
-```flux
-int[10] numbers;
-numbers[0] = 10;
-numbers[1] = 20;
-
-int first = numbers[0];    // Read array element
-int second = numbers[1];
-```
-
-### Functions with Parameters
-```flux
-public int Add(int a, int b) {
-    return a + b;
-}
-
-int result = Add(5, 3);
-```
-
-### Control Flow
-```flux
-for (int i = 0; i < 10; i++) {
-    print("Iteration");
-}
-
-if (result > 10) {
-    print("Large");
-} else {
-    print("Small");
-}
-```
-
-## Editing Your Program
-
-Edit `main.fsh` with your favorite editor:
-
+Run it:
 ```bash
-nano main.fsh
+./build.sh hello.fsh
 ```
 
-Then rebuild and run:
+## One More Thing - Math (1 minute)
 
-```bash
-./build.sh
-```
+Update `hello.fsh`:
 
-## Example Patterns
-
-### Constants
-```flux
-const int MAX_SIZE = 100;
-const double PI = 3.14159;
-```
-
-### Structs
-```flux
-public struct Point {
-    int x;
-    int y;
+```rust
+class Main {
+    public void main() {
+        int x = 10;
+        int y = 20;
+        int sum = x + y;
+        
+        print(sum);  // Prints: 30
+    }
 }
 ```
 
-### Variables with Types
-```flux
-int count = 10;
-double temperature = 23.5;
-string name = "FluxSharp";
-bool active = true;
+Run it:
+```bash
+./build.sh hello.fsh
 ```
 
-### Method Calls
-```flux
-Calculator calc = new Calculator();
-int sum = calc.Add(5, 3);
-```
+## What You've Learned ✅
 
-## Workflow
-
-1. **Edit code** - Modify `main.fsh`
-2. **Build and run** - Execute `./build.sh`
-3. **See output** - Program runs and displays results
-4. **Iterate** - Go back to step 1
-
-## Demo Features
-
-The default `main.fsh` demonstrates:
-- **Constants** - Global constant values
-- **Structs** - Data structures with fields
-- **Classes** - Object-oriented programming
-- **Objects** - Creating instances with `new`
-- **Arrays** - Fixed-size collections
-- **Array Access** - Reading and writing elements
-- **Functions** - Parameter passing and return values
-- **Methods** - Class member functions
-- **Control Flow** - for loops, if/else statements
+- ✅ How to create a FluxSharp program
+- ✅ How to compile and run code
+- ✅ Basic syntax with classes and main()
+- ✅ Using variables
+- ✅ Arithmetic operations
+- ✅ print() function
 
 ## Next Steps
 
-1. **Run the demo** - `./build.sh`
-2. **Read syntax** - Check [SYNTAX.md](SYNTAX.md)
-3. **Learn features** - Review other `.md` files in docs/
-4. **Experiment** - Modify `main.fsh` and rebuild
+### Learn More:
+- [TYPES.md](TYPES.md) - All data types
+- [FUNCTIONS.md](FUNCTIONS.md) - Write your own functions
+- [CLASSES.md](CLASSES.md) - Full OOP examples
+- [CONTROL_FLOW.md](CONTROL_FLOW.md) - Loops and conditions
 
-## Available Commands
+### Common Patterns:
 
-| Command | Does |
-|---------|------|
-| `./build.sh` | Complete build and run |
-| `make quickstart` | Alternative build (same as above) |
-| `make build` | Build only (no run) |
-| `make clean` | Remove generated files |
+**Declare variables:**
+```rust
+int count = 42;
+float price = 9.99f;
+string message = "Hello";
+bool active = true;
+```
+
+**Write a function:**
+```rust
+public int multiply(int a, int b) {
+    return a * b;
+}
+```
+
+**Create a class:**
+```rust
+class MyClass {
+    int value = 0;
+    
+    public void setValue(int v) {
+        value = v;
+    }
+}
+```
+
+**Use a loop:**
+```rust
+for (int i = 0; i < 5; i = i + 1) {
+    print(i);
+}
+```
+
+## Troubleshooting
+
+**Error: "Missing semicolon"**
+→ Add `;` at the end of each statement
+
+**Error: "Float literal"**
+→ Use `3.14f` not `3.14` for floats
+
+**Error: "Undefined variable"**
+→ Declare variables before using them
+
+**See [ERROR_GUIDE.md](ERROR_GUIDE.md) for all error types.**
+
+## Key Rules to Remember
+
+1. **Semicolons** - Every statement ends with `;`
+2. **Float format** - Use `3.14f` not `3.14`
+3. **Case sensitive** - `Main` ≠ `main`
+4. **Declare first** - Variables before use
+5. **Curly braces** - Match all `{` with `}`
+
+## Try These Examples
+
+```bash
+# Hello world
+./build.sh examples/hello.fsh
+
+# Classes and objects
+./build.sh examples/calculator.fsh
+
+# Arrays
+./build.sh examples/arrays.fsh
+```
+
+## Quick Reference
+
+| Task | Syntax |
+|------|--------|
+| Print text | `print("Hello");` |
+| Declare int | `int x = 10;` |
+| Declare float | `float f = 3.14f;` |
+| Declare string | `string s = "text";` |
+| Add numbers | `int sum = a + b;` |
+| Call function | `result = max(10, 20);` |
+| Create object | `MyClass obj = new MyClass();` |
+
+## Ready to Learn More?
+
+→ Explore [all documentation](README.md)
+
+→ Try [TYPES.md](TYPES.md) next
+
+→ See [SYNTAX.md](SYNTAX.md) for detailed reference
 
 ---
 
-**You're ready! Run `./build.sh` to get started!** 🚀
+**Happy coding!** 🚀
+
+Having trouble? Check [ERROR_GUIDE.md](ERROR_GUIDE.md)
 

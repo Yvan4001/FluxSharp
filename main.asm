@@ -1,5 +1,5 @@
 ; ============================
-; Flux# compiled from "/run/media/yvan/E6EAD2EBEAD2B6D1/Projet_Dev/FluxSharp/main.fsh"
+; Flux# compiled from "main.fsh"
 ; fluxc v0.1.0
 ; ============================
 
@@ -53,7 +53,7 @@ str_43: db "All demonstrations complete!", 0
 str_44: db "=============================================", 0
 
 section .text
-; === Compiled from "/run/media/yvan/E6EAD2EBEAD2B6D1/Projet_Dev/FluxSharp/main.fsh" by fluxc ===
+; === Compiled from "main.fsh" by fluxc ===
 extern _fsh_print_str
 extern _fsh_print_int
 
