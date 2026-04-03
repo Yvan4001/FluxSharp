@@ -18,6 +18,7 @@ Welcome to FluxSharp documentation! This folder is organized by category for eas
 - `FUNCTIONS.md` - Function definition and calls
 - `CLASSES.md` - Object-oriented programming
 - `ARRAYS.md` - Array handling
+- `BOUNDS_CHECKING.md` - **⭐ NEW** - Automatic array bounds validation
 - `CONTROL_FLOW.md` - If/else, loops, conditions
 
 ### 3. 🎓 **Advanced Topics** (`03-advanced/`)
@@ -40,6 +41,7 @@ Welcome to FluxSharp documentation! This folder is organized by category for eas
 - `CHANGES_SUMMARY.md` - Change history
 - `IMPLEMENTATION_SUMMARY.md` - Technical implementation
 - `VERIFICATION_REPORT.md` - Verification and testing results
+- `FLUXSHARP_VS_CSHARP.md` - **⭐ NEW** - FluxSharp vs C# Natif - Security & Performance comparison
 
 ---
 
@@ -48,10 +50,11 @@ Welcome to FluxSharp documentation! This folder is organized by category for eas
 | Category | Files | Topics | Typical Read Time |
 |----------|-------|--------|-------------------|
 | 01-quickstart | 2 | Getting started | 5-10 min |
-| 02-language | 8 | Syntax & features | 45-60 min |
+| 02-language | 9 | Syntax & features | 50-70 min |
 | 03-advanced | 2 | Advanced features | 20-30 min |
 | 04-compiler | 5 | Building & errors | 25-35 min |
-| 05-reference | 5 | Technical details | 30-45 min |
+| 05-reference | 6 | Technical details & comparison | 40-60 min |
+| **TOTAL** | **24** | All topics | **4-4.5 hours** |
 
 ---
 
@@ -63,9 +66,12 @@ Welcome to FluxSharp documentation! This folder is organized by category for eas
 - **Understand types** → Read `02-language/TYPES.md`
 - **Define functions** → Read `02-language/FUNCTIONS.md`
 - **Use classes** → Read `02-language/CLASSES.md`
+- **Work with arrays** → Read `02-language/ARRAYS.md`
+- **⭐ Bounds checking** → Read `02-language/BOUNDS_CHECKING.md` (Array safety!)
 - **Fix errors** → Read `04-compiler/ERROR_GUIDE.md`
 - **Use imports** → Read `03-advanced/CSHARP_IMPORTS_UPDATE.md`
 - **See all changes** → Read `05-reference/CHANGES_SUMMARY.md`
+- **⭐ Compare with C#** → Read `05-reference/FLUXSHARP_VS_CSHARP.md` (Security & Performance analysis)
 
 ---
 
@@ -110,6 +116,7 @@ docs/
 │   ├── FUNCTIONS.md                   (Functions & methods)
 │   ├── CLASSES.md                     (Classes & OOP)
 │   ├── ARRAYS.md                      (Array handling)
+│   ├── BOUNDS_CHECKING.md             (⭐ NEW - Array bounds validation)
 │   └── CONTROL_FLOW.md                (Control structures)
 ├── 03-advanced/
 │   ├── ASYNC_AWAIT.md                 (Async programming)
@@ -125,7 +132,8 @@ docs/
     ├── BEFORE_AFTER_COMPARISON.md     (Version comparison)
     ├── CHANGES_SUMMARY.md             (Change log)
     ├── IMPLEMENTATION_SUMMARY.md      (Technical details)
-    └── VERIFICATION_REPORT.md         (Testing & verification)
+    ├── VERIFICATION_REPORT.md         (Testing & verification)
+    └── FLUXSHARP_VS_CSHARP.md         (⭐ NEW - C# Comparison)
 ```
 
 ---
@@ -138,6 +146,7 @@ docs/
 - **Functions**: `02-language/FUNCTIONS.md`
 - **Classes & OOP**: `02-language/CLASSES.md`
 - **Arrays**: `02-language/ARRAYS.md`
+- **⭐ Array Safety**: `02-language/BOUNDS_CHECKING.md` (Automatic bounds validation)
 - **Control Flow**: `02-language/CONTROL_FLOW.md`
 - **Imports System**: `03-advanced/CSHARP_IMPORTS_UPDATE.md`
 - **Async/Await**: `03-advanced/ASYNC_AWAIT.md`
@@ -146,6 +155,7 @@ docs/
 - **Standard Library**: `05-reference/STDLIB.md`
 - **Technical Reference**: `05-reference/IMPLEMENTATION_SUMMARY.md`
 - **Changes & History**: `05-reference/CHANGES_SUMMARY.md`
+- **⭐ C# Comparison**: `05-reference/FLUXSHARP_VS_CSHARP.md` (Security & Performance)
 
 ---
 

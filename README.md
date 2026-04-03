@@ -58,6 +58,7 @@ Learn FluxSharp syntax and features:
 - [FUNCTIONS.md](docs/02-language/FUNCTIONS.md) - Function definitions and calls
 - [CLASSES.md](docs/02-language/CLASSES.md) - Object-oriented programming
 - [ARRAYS.md](docs/02-language/ARRAYS.md) - Array handling
+- **🛡️ [BOUNDS_CHECKING.md](docs/02-language/BOUNDS_CHECKING.md) - NEW** - Automatic array bounds validation
 - [CONTROL_FLOW.md](docs/02-language/CONTROL_FLOW.md) - If/else, loops, conditions
 
 #### 🎓 **[Advanced Topics](docs/03-advanced/)** (20-30 min read)
@@ -80,6 +81,7 @@ Technical reference and project reports:
 - [CHANGES_SUMMARY.md](docs/05-reference/CHANGES_SUMMARY.md) - Change history
 - [IMPLEMENTATION_SUMMARY.md](docs/05-reference/IMPLEMENTATION_SUMMARY.md) - Technical implementation
 - [VERIFICATION_REPORT.md](docs/05-reference/VERIFICATION_REPORT.md) - Verification and testing results
+- **⭐ [FLUXSHARP_VS_CSHARP.md](docs/05-reference/FLUXSHARP_VS_CSHARP.md) - NEW** - Detailed comparison with C# (Security & Performance)
 
 ### 📊 Quick Links by Task
 
@@ -91,12 +93,14 @@ Technical reference and project reports:
 | **Define functions** | [02-language/FUNCTIONS.md](docs/02-language/FUNCTIONS.md) |
 | **Use classes** | [02-language/CLASSES.md](docs/02-language/CLASSES.md) |
 | **Work with arrays** | [02-language/ARRAYS.md](docs/02-language/ARRAYS.md) |
+| **Secure array access** | [02-language/BOUNDS_CHECKING.md](docs/02-language/BOUNDS_CHECKING.md) 🛡️ NEW |
 | **Control flow** | [02-language/CONTROL_FLOW.md](docs/02-language/CONTROL_FLOW.md) |
 | **Fix errors** | [04-compiler/ERROR_GUIDE.md](docs/04-compiler/ERROR_GUIDE.md) |
 | **Use imports** | [03-advanced/CSHARP_IMPORTS_UPDATE.md](docs/03-advanced/CSHARP_IMPORTS_UPDATE.md) |
 | **Async programming** | [03-advanced/ASYNC_AWAIT.md](docs/03-advanced/ASYNC_AWAIT.md) |
 | **See all changes** | [05-reference/CHANGES_SUMMARY.md](docs/05-reference/CHANGES_SUMMARY.md) |
 | **Standard library** | [05-reference/STDLIB.md](docs/05-reference/STDLIB.md) |
+| **Compare with C#** | [05-reference/FLUXSHARP_VS_CSHARP.md](docs/05-reference/FLUXSHARP_VS_CSHARP.md) ⭐ NEW |
 
 ### 🛤️ Suggested Reading Paths
 

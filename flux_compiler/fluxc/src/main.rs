@@ -9,6 +9,7 @@ use std::time::Duration;
 use std::env;
 
 mod error_handler;
+mod bounds_checker;
 
 // ===== SECURITY CONSTRAINTS =====
 const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;  // 50 MB
@@ -1359,7 +1360,7 @@ fn compile_block_with_loop_context(
                     }
                     
                     // Check if it's an operation with two parameters (like "a + b", "a - b", etc)
-                    if (expr_str.contains("+") || expr_str.contains("-") || expr_str.contains("*") || expr_str.contains("/")) {
+                    if expr_str.contains("+") || expr_str.contains("-") || expr_str.contains("*") || expr_str.contains("/") {
                         let operators = vec!["+", "-", "*", "/"];
                         for op in &operators {
                             if expr_str.contains(op) && expr_str.matches(op).count() == 1 {
