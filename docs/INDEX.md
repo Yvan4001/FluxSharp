@@ -23,7 +23,8 @@ Welcome to FluxSharp documentation! This folder is organized by category for eas
 
 ### 3. 🎓 **Advanced Topics** (`03-advanced/`)
 **Deep dive into advanced features**
-- `ASYNC_AWAIT.md` - Asynchronous programming
+- `ASYNC_AWAIT.md` - Asynchronous programming overview
+- `ASYNC_AWAIT_IMPLEMENTATION.md` - **⭐ NEW** - Complete async/await implementation guide
 - `CSHARP_IMPORTS_UPDATE.md` - C# style imports and modules
 
 ### 4. 🔧 **Compiler Guide** (`04-compiler/`)
@@ -50,11 +51,11 @@ Welcome to FluxSharp documentation! This folder is organized by category for eas
 | Category | Files | Topics | Typical Read Time |
 |----------|-------|--------|-------------------|
 | 01-quickstart | 2 | Getting started | 5-10 min |
-| 02-language | 9 | Syntax & features | 50-70 min |
-| 03-advanced | 2 | Advanced features | 20-30 min |
+| 02-language | 11 | Syntax & features | 55-75 min |
+| 03-advanced | 3 | Advanced features | 30-45 min |
 | 04-compiler | 5 | Building & errors | 25-35 min |
 | 05-reference | 6 | Technical details & comparison | 40-60 min |
-| **TOTAL** | **24** | All topics | **4-4.5 hours** |
+| **TOTAL** | **27** | All topics | **4.5-5.5 hours** |
 
 ---
 
@@ -70,6 +71,7 @@ Welcome to FluxSharp documentation! This folder is organized by category for eas
 - **⭐ Bounds checking** → Read `02-language/BOUNDS_CHECKING.md` (Array safety!)
 - **Fix errors** → Read `04-compiler/ERROR_GUIDE.md`
 - **Use imports** → Read `03-advanced/CSHARP_IMPORTS_UPDATE.md`
+- **⭐ Async/Await** → Read `03-advanced/ASYNC_AWAIT_IMPLEMENTATION.md` (Full guide!)
 - **See all changes** → Read `05-reference/CHANGES_SUMMARY.md`
 - **⭐ Compare with C#** → Read `05-reference/FLUXSHARP_VS_CSHARP.md` (Security & Performance analysis)
 
@@ -119,7 +121,8 @@ docs/
 │   ├── BOUNDS_CHECKING.md             (⭐ NEW - Array bounds validation)
 │   └── CONTROL_FLOW.md                (Control structures)
 ├── 03-advanced/
-│   ├── ASYNC_AWAIT.md                 (Async programming)
+│   ├── ASYNC_AWAIT.md                 (Async/await overview)
+│   ├── ASYNC_AWAIT_IMPLEMENTATION.md  (⭐ NEW - Full implementation)
 │   └── CSHARP_IMPORTS_UPDATE.md       (Import system)
 ├── 04-compiler/
 │   ├── BUILD_SYSTEM.md                (Build & compilation)
@@ -150,11 +153,13 @@ docs/
 - **Control Flow**: `02-language/CONTROL_FLOW.md`
 - **Imports System**: `03-advanced/CSHARP_IMPORTS_UPDATE.md`
 - **Async/Await**: `03-advanced/ASYNC_AWAIT.md`
+- **⭐ Async/Await Implementation**: `03-advanced/ASYNC_AWAIT_IMPLEMENTATION.md` (Full guide!)
 - **Compiler & Build**: `04-compiler/`
 - **Error Reference**: `04-compiler/ERROR_GUIDE.md`, `04-compiler/COMPILER_ERRORS.md`
 - **Standard Library**: `05-reference/STDLIB.md`
 - **Technical Reference**: `05-reference/IMPLEMENTATION_SUMMARY.md`
 - **Changes & History**: `05-reference/CHANGES_SUMMARY.md`
+- **⭐ C# Comparison**: `05-reference/FLUXSHARP_VS_CSHARP.md` (Security & Performance)
 - **⭐ C# Comparison**: `05-reference/FLUXSHARP_VS_CSHARP.md` (Security & Performance)
 
 ---
