@@ -141,6 +141,7 @@ Main_main:
     ; --- int sum = calc.Add(10, 20); ---
     sub rsp, 8
     mov rdi, 10
+    mov rsi, 20
     call Calculator_Add
     mov qword [rbp-40], rax
 
@@ -155,6 +156,7 @@ Main_main:
     ; --- int diff = calc.Subtract(30, 15); ---
     sub rsp, 8
     mov rdi, 30
+    mov rsi, 15
     call Calculator_Subtract
     mov qword [rbp-48], rax
 
@@ -169,6 +171,7 @@ Main_main:
     ; --- int prod = calc.Multiply(5, 6); ---
     sub rsp, 8
     mov rdi, 5
+    mov rsi, 6
     call Calculator_Multiply
     mov qword [rbp-56], rax
 

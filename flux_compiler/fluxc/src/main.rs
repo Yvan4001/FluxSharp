@@ -838,13 +838,17 @@ fn compile_block_with_loop_context(
                                         let args_str = expr_str[paren_pos+1..expr_str.rfind(')').unwrap_or(expr_str.len())].trim();
                                         if !args_str.is_empty() {
                                             let args: Vec<&str> = args_str.split(',').map(|s| s.trim()).collect();
-                                            // First argument goes in rdi
-                                            if let Some(first_arg) = args.first() {
+                                            // Load all arguments following x86-64 calling convention
+                                            let regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+                                            
+                                            for (idx, arg) in args.iter().enumerate() {
+                                                let reg = if idx < regs.len() { regs[idx] } else { "rdi" };
+                                                
                                                 // Try to parse as integer
-                                                if let Ok(n) = first_arg.parse::<i64>() {
-                                                    text_section.push_str(&format!("    mov rdi, {}\n", n));
-                                                } else if let Some(offset) = var_offsets.get(*first_arg) {
-                                                    text_section.push_str(&format!("    mov rdi, [rbp-{}]\n", offset));
+                                                if let Ok(n) = arg.parse::<i64>() {
+                                                    text_section.push_str(&format!("    mov {}, {}\n", reg, n));
+                                                } else if let Some(offset) = var_offsets.get(*arg) {
+                                                    text_section.push_str(&format!("    mov {}, [rbp-{}]\n", reg, offset));
                                                 }
                                             }
                                         }
@@ -1087,20 +1091,26 @@ fn compile_block_with_loop_context(
                         .unwrap_or_else(|| obj.clone());  // Fallback to object name if type not found
                     let method_label = format!("{}_{}", class_name, callee);
                     
-                    // Collect arguments
+                    // Collect arguments in registers following x86-64 calling convention
                     let mut args_code = String::new();
+                    let regs = vec!["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+                    let mut arg_idx = 0;
+                    
                     while let Some(arg_pair) = call_inner.next() {
                         if let Ok(val) = eval_expr(arg_pair, &symbols.variables) {
+                            let reg = if arg_idx < regs.len() { regs[arg_idx] } else { "rdi" };
+                            arg_idx += 1;
+                            
                             match val {
                                 FluxValue::Integer(n) => {
-                                    args_code.push_str(&format!("    mov rdi, {}\n", n));
+                                    args_code.push_str(&format!("    mov {}, {}\n", reg, n));
                                 }
                                 FluxValue::Str(text) => {
                                     let label = format!("str_{}", *unique_id);
                                     *unique_id += 1;
                                     let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
                                     data_section.push_str(&format!("{}: db \"{}\", 0\n", label, escaped));
-                                    args_code.push_str(&format!("    lea rdi, [rel {}]\n", label));
+                                    args_code.push_str(&format!("    lea {}, [rel {}]\n", reg, label));
                                 }
                                 _ => {}
                             }
