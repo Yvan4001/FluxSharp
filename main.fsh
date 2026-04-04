@@ -16,6 +16,11 @@ public class Calculator {
     public int Multiply(int a, int b) {
         return a * b;
     }
+    
+    // Custom ToString() method
+    public string ToString() {
+        return "Calculator";
+    }
 }
 
 public class Main {
@@ -48,8 +53,43 @@ public class Main {
         print("Multiply(5, 6) = ");
         print(prod);
         
-        // ===== Test 3: Variables =====
-        print("=== Test 3: Variables ===");
+        // ===== Test 3: Default ToString() for Primitive Types =====
+        print("=== Test 3: ToString() for Primitive Types ===");
+        
+        int intValue = 42;
+        float floatValue = 3.14f;
+        double doubleValue = 2.71828;
+        string strValue = "Hello";
+        
+        print("int value: ");
+        print(intValue.ToString());
+        
+        print("float value: ");
+        print(floatValue.ToString());
+        
+        print("double value: ");
+        print(doubleValue.ToString());
+        
+        print("string value: ");
+        print(strValue.ToString());
+        
+        // ===== Test 4: Math Functions =====
+        print("=== Test 4: Math Functions ===");
+        
+        int powResult = pow(2, 3);
+        print("pow(2, 3) = ");
+        print(powResult);
+        
+        int maxResult = max(10, 20);
+        print("max(10, 20) = ");
+        print(maxResult);
+        
+        int minResult = min(10, 20);
+        print("min(10, 20) = ");
+        print(minResult);
+        
+        // ===== Test 5: Variables =====
+        print("=== Test 5: Variables ===");
         
         int x = 42;
         int y = 8;
@@ -58,8 +98,8 @@ public class Main {
         print("Variable y = ");
         print(y);
         
-        // ===== Test 4: String Printing =====
-        print("=== Test 4: String Printing ===");
+        // ===== Test 6: String Operations =====
+        print("=== Test 6: String Operations ===");
         print("Hello, FluxSharp!");
         print("Program completed successfully!");
     }

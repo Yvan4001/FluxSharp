@@ -32,6 +32,8 @@ assignment_op = { "=" | "+=" | "-=" }
 increment_op = { "++" | "--" }
 
 // Expressions - simplified for clarity
+unary_op = { "+" | "-" | "!" }
+
 primary = {
     bool_literal
     | float_literal
@@ -43,8 +45,16 @@ primary = {
     | ident
 }
 
+unary = {
+    unary_op? ~ primary ~ (
+        "(" ~ (expr ~ ("," ~ expr)*)? ~ ")"    // Function call
+        | "[" ~ expr ~ "]"                      // Array access
+        | "." ~ ident                           // Member access
+    )*
+}
+
 postfix = {
-    primary ~ (
+    unary ~ (
         "(" ~ (expr ~ ("," ~ expr)*)? ~ ")"    // Function call
         | "[" ~ expr ~ "]"                      // Array access
         | "." ~ ident                           // Member access

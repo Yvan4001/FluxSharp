@@ -282,6 +282,11 @@ global _fsh_ceil
 _fsh_ceil:
     mov rax, rdi
     ret
+; --- _fsh_round ---
+global _fsh_round
+_fsh_round:
+    mov rax, rdi
+    ret
 ; --- _fsh_max ---
 global _fsh_max
 _fsh_max:
@@ -314,7 +319,6 @@ _fsh_pow:
     jg .pow_loop
 .pow_end:
     ret
-
 
 section .bss
     buffer resb 40

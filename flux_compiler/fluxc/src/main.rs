@@ -678,6 +678,7 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
     asm.push_str("extern _fsh_pow\n");
     asm.push_str("extern _fsh_floor\n");
     asm.push_str("extern _fsh_ceil\n");
+    asm.push_str("extern _fsh_round\n");
     asm.push_str("extern _fsh_sqrt\n");
     asm.push_str("\n");
 
@@ -905,6 +906,10 @@ fn compile_block_with_loop_context(
                                         "max" => "_fsh_max",
                                         "min" => "_fsh_min",
                                         "pow" => "_fsh_pow",
+                                        "sqrt" => "_fsh_sqrt",
+                                        "floor" => "_fsh_floor",
+                                        "ceil" => "_fsh_ceil",
+                                        "round" => "_fsh_round",
                                         _ => func_name,
                                     };
                                     text_section.push_str(&format!("    call {}\n", call_name));
@@ -1730,11 +1735,53 @@ fn eval_expr(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue
     Ok(result)
 }
 
-fn eval_postfix(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue>) -> Result<FluxValue> {
-    // postfix = { primary ~ ("(" ~ (expr ~ ("," ~ expr)*)? ~ ")" | "[" ~ expr ~ "]" | "." ~ ident)* }
+fn eval_unary(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue>) -> Result<FluxValue> {
+    // unary = { unary_op? ~ primary ~ ... }
     let mut inner = pair.into_inner();
-    let primary = inner.next().ok_or_else(|| anyhow::anyhow!("Empty postfix"))?;
-    let mut base = eval_primary(primary, vars)?;
+    
+    // Check if there's a unary operator
+    let mut unary_op = None;
+    let mut first = inner.next().ok_or_else(|| anyhow::anyhow!("Empty unary"))?;
+    
+    // If first element is unary_op, parse it
+    if first.as_rule() == Rule::unary_op {
+        unary_op = Some(first.as_str().to_string());
+        first = inner.next().ok_or_else(|| anyhow::anyhow!("Missing operand after unary operator"))?;
+    }
+    
+    let mut value = eval_primary(first, vars)?;
+    
+    // Apply unary operator if present
+    if let Some(op) = unary_op {
+        value = match op.as_str() {
+            "-" => {
+                match value {
+                    FluxValue::Integer(n) => FluxValue::Integer(-n),
+                    FluxValue::Float(f) => FluxValue::Float(-f),
+                    FluxValue::Double(d) => FluxValue::Double(-d),
+                    _ => bail!("Cannot apply unary minus to non-numeric type"),
+                }
+            }
+            "+" => value, // Unary plus does nothing
+            "!" => {
+                // Logical NOT
+                match value {
+                    FluxValue::Integer(n) => FluxValue::Integer(if n == 0 { 1 } else { 0 }),
+                    _ => bail!("Cannot apply logical NOT to non-integer"),
+                }
+            }
+            _ => bail!("Unknown unary operator: {}", op),
+        };
+    }
+    
+    Ok(value)
+}
+
+fn eval_postfix(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue>) -> Result<FluxValue> {
+    // postfix = { unary ~ ("(" ~ (expr ~ ("," ~ expr)*)? ~ ")" | "[" ~ expr ~ "]" | "." ~ ident)* }
+    let mut inner = pair.into_inner();
+    let unary = inner.next().ok_or_else(|| anyhow::anyhow!("Empty postfix"))?;
+    let mut base = eval_unary(unary, vars)?;
 
     // Process postfix operators (function calls, array access, member access)
     while let Some(suffix) = inner.next() {
@@ -1926,7 +1973,19 @@ fn eval_primary(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxVa
                         _ => bail!("⚠️  Type Error: sqrt() requires a numeric argument (int, float, or double)\n   Example: sqrt(16), sqrt(16.0)"),
                     }
                 }
-                _ => bail!("❌ Undefined function: '{}'\n   Available math functions: abs, max, min, pow, floor, ceil, round, sqrt", func_name_str),
+                "ToString" => {
+                    // Convert value to string representation
+                    if args.len() == 0 {
+                        bail!("❌ Function Error: ToString() requires at least the object itself to convert");
+                    }
+                    match &args[0] {
+                        FluxValue::Integer(i) => Ok(FluxValue::Str(i.to_string())),
+                        FluxValue::Float(f) => Ok(FluxValue::Str(f.to_string())),
+                        FluxValue::Double(d) => Ok(FluxValue::Str(d.to_string())),
+                        FluxValue::Str(s) => Ok(FluxValue::Str(s.clone())),
+                    }
+                }
+                _ => bail!("❌ Undefined function: '{}'\n   Available functions:\n   - Math: abs, max, min, pow, floor, ceil, round, sqrt\n   - Conversion: ToString\n   - I/O: print, serial_print", func_name_str),
             }
         }
         _ => bail!("❌ Unexpected expression type in evaluation"),
