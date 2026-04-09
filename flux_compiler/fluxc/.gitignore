@@ -1,0 +1,22 @@
+# WASM Build Output
+pkg/
+target/
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.o
+*.asm
+*.wasm
+*.wasm.map
+

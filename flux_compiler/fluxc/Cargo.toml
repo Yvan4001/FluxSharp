@@ -1,8 +1,15 @@
 [package]
 name = "fluxc"
-version = "0.1.0"
-authors = ["FluxSharp <noreply@example.com>"]
-edition = "2021"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "fluxc"
+path = "src/main.rs"
 
 [dependencies]
 # Parsing
@@ -10,7 +17,11 @@ pest = "2.7"
 pest_derive = "2.7"
 
 # CLI (Pour faire: fluxc compile main.fsh)
-clap = { version = "4.4", features = ["derive"] }
+clap = { version = "4.4", features = ["derive"], optional = true }
 
 # Gestion d'erreurs propre
 anyhow = "1.0"
+
+[features]
+default = ["cli"]
+cli = ["clap"]

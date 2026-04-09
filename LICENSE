@@ -1,30 +1,16 @@
-FluxSharp License (Custom Open Source)
+MIT License
 
 Copyright (c) 2025 Yvan Simon
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to use,
-copy, modify, and/or merge copies of the Software, and to permit persons to
-whom the Software is furnished to do so, subject to the following conditions:
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-1. Distribution Restriction: The Software may only be distributed through the 
-   official GitHub repository at https://github.com/Yvan4001/FluxSharp
-   or other channels explicitly approved in writing by the copyright holder.
-   Distribution through any other means is expressly prohibited.
-
-2. Contribution: All contributors retain copyright to their contributions but agree
-   to license those contributions under the terms of this license. All contributions 
-   submitted for inclusion in the official distribution are subject to approval by
-   the copyright holder.
-
-3. Attribution: The above copyright notice and this permission notice shall be
-   included in all copies or substantial portions of the Software.
-
-4. Non-Commercial Use: The Software may not be used for commercial purposes
-   without explicit written permission from the copyright holder.
-
-5. Public Domain Prohibition: This Software shall not enter the public domain.
-   All rights not expressly granted herein are reserved.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
