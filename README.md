@@ -2,6 +2,10 @@
 
 **FluxSharp** is a modern, expressive programming language compiled to x86-64 assembly. It features clean syntax, object-oriented programming, and rich standard library functions.
 
+## 🏷️ Topics
+
+`programming-language` • `compiler` • `x86-64` • `rust` • `assembler` • `object-oriented` • `type-safe` • `educational` • `open-source` • `system-programming` • `bounds-checking` • `security` • `async-await`
+
 ## ✨ Features
 
 - **Object-Oriented** - Classes, methods, properties
