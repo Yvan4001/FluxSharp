@@ -330,6 +330,19 @@ _fsh_panic_bounds:
     mov rax, 60
     syscall
 
+global _fsh_string_length
+_fsh_string_length:
+    ; rdi = pointer to null-terminated string
+    ; returns length in rax
+    xor rax, rax
+.loop:
+    cmp byte [rdi + rax], 0
+    je  .done
+    inc rax
+    jmp .loop
+.done:
+    ret
+
 section .bss
     buffer resb 40
     fbuffer resb 64

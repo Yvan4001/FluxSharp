@@ -329,6 +329,7 @@ pub struct SymbolTable {
     pub structs: HashMap<String, Vec<(String, FluxType)>>,
     pub functions: HashMap<String, FunctionSignature>,
     pub variable_types: HashMap<String, String>,
+    pub current_class: Option<String>,
 }
 
 #[derive(Debug, Clone)]

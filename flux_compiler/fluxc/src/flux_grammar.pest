@@ -25,9 +25,7 @@ await_keyword = { "await" }
 new_keyword = { "new" }
 
 // Operators
-#[allow(dead_code)]
 bitwise_op = { "&" | "|" | "^" | "<<" | ">>" }
-#[allow(dead_code)]
 logical_op = { "&&" | "||" }
 assignment_op = { "=" | "+=" | "-=" }
 increment_op = { "++" | "--" }
@@ -134,14 +132,18 @@ class_def = {
     attribute? ~ "public"? ~ "static"? ~ "private"? ~ "class" ~ ident ~ (":" ~ ident)? ~ "{" ~ (class_property | class_method | class_constructor)* ~ "}"
 }
 
-// Condition 
-condition = { "(" ~ expr ~ ")" }
+// Condition - just the expression
+condition = { expr }
 
 increment = { ident ~ ("++" | "--" | (assignment_op ~ expr)) }
 increment_stmt = { ident ~ increment_op ~ ";" }
 
-// For loop increment - supports both i++ and i = i + 1
-for_increment = { (increment_stmt | assignment_stmt) }
+// For loop increment - supports both i++ and i = i + 1, without trailing semicolon
+for_increment = {
+    ident ~ "++"
+    | ident ~ "--"
+    | ident ~ assignment_op ~ expr
+}
 
 // Assignment statement - handles: x = 5, obj.prop = 5, arr[0] = 5
 // Order matters in PEG: try longest match first
@@ -156,7 +158,7 @@ assignment_stmt = {
 for_init = { (type_ident | ident) ~ ident ~ ("=" ~ expr)? }
 
 for_loop = {
-    "for" ~ "(" ~ for_init ~ ";" ~ condition ~ ";" ~ (ident ~ ("++" | "--" | (assignment_op ~ expr)))? ~ ")" ~ block
+    "for" ~ "(" ~ for_init ~ ";" ~ condition ~ ";" ~ for_increment? ~ ")" ~ block
 }
 
 while_loop = {
@@ -195,5 +197,8 @@ statement = _{
     | function_call
 }
 
+// Using directive for file imports
+using_stmt = { "using" ~ string_literal ~ ";" }
+
 // File root - Only classes and structs allowed (no global functions)
-file = { SOI ~ (const_decl | struct_def | class_def)* ~ EOI }
+file = { SOI ~ using_stmt* ~ (const_decl | struct_def | class_def)* ~ EOI }

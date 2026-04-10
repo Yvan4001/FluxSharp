@@ -264,6 +264,9 @@ pub fn eval_expr(pair: Pair<Rule>, variables: &HashMap<String, FluxValue>) -> Re
             let val = first.as_str() == "true";
             Ok(FluxValue::Int(if val { 1 } else { 0 }))
         }
+        Rule::null_literal => {
+            Ok(FluxValue::Int(0))
+        }
         Rule::char_literal => {
             // For now, treat as integer (ASCII value of the character)
             let char_str = first.as_str();
@@ -283,71 +286,87 @@ pub fn compile_condition(
 ) -> Result<()> {
     let expr_pair = condition.into_inner().next().unwrap();
 
-    let mut inner_expr = expr_pair.clone().into_inner();
-    let left_pair  = inner_expr.next();
-    let op_pair    = inner_expr.next();
-    let right_pair = inner_expr.next();
-
-    if let (Some(left), Some(op), Some(right)) = (left_pair, op_pair, right_pair) {
-        // --- LEFT operand ---
-        let left_str = left.as_str().trim();
-        if let Some(&offset) = var_offsets.get(left_str) {
-            text_section.push_str(&format!("    mov rax, [rbp-{}]\n", offset));
-        } else if let Ok(val) = eval_expr(left, &symbols.variables) {
-            match val {
-                FluxValue::Int(n) => text_section.push_str(&format!("    mov rax, {}\n", n)),
-                _ => bail!("Condition operand must be integer"),
-            }
-        } else {
-            bail!("Unknown left operand in condition: {}", left_str);
+    // Walk down expr -> logical_or -> logical_and -> comparison
+    fn find_comparison(pair: Pair<Rule>) -> Option<Pair<Rule>> {
+        if pair.as_rule() == Rule::comparison {
+            return Some(pair);
         }
-
-        // --- RIGHT operand ---
-        let right_str = right.as_str().trim();
-        if let Some(&offset) = var_offsets.get(right_str) {
-            text_section.push_str(&format!("    cmp rax, [rbp-{}]\n", offset));
-        } else if let Ok(val) = eval_expr(right, &symbols.variables) {
-            match val {
-                FluxValue::Int(n) => text_section.push_str(&format!("    cmp rax, {}\n", n)),
-                _ => bail!("Condition operand must be integer"),
+        for child in pair.into_inner() {
+            if let Some(found) = find_comparison(child) {
+                return Some(found);
             }
-        } else {
-            bail!("Unknown right operand in condition: {}", right_str);
         }
+        None
+    }
 
-        // --- Jump based on operator ---
-        let jump_op = match op.as_str() {
-            "==" => "jne",
-            "!=" => "je",
-            "<"  => "jge",
-            ">"  => "jle",
-            "<=" => "jg",
-            ">=" => "jl",
-            _    => bail!("Unsupported operator in condition: {}", op.as_str()),
-        };
-        text_section.push_str(&format!("    {} {}\n", jump_op, label_false));
+    if let Some(comparison) = find_comparison(expr_pair.clone()) {
+        let mut cmp_inner = comparison.into_inner();
+        let left  = cmp_inner.next().unwrap();
+        let op    = cmp_inner.next();
+        let right = cmp_inner.next();
 
-    } else {
-        // Single boolean / variable condition: if (flag)
-        let val_str = expr_pair.as_str().trim();
-        if let Some(&offset) = var_offsets.get(val_str) {
-            text_section.push_str(&format!("    cmp qword [rbp-{}], 0\n", offset));
+        // Emit left operand into rax
+        emit_operand(left, text_section, symbols, var_offsets, "rax")?;
+
+        if let (Some(op), Some(right)) = (op, right) {
+            // Emit right operand into rcx, then compare
+            emit_operand(right, text_section, symbols, var_offsets, "rcx")?;
+            text_section.push_str("    cmp rax, rcx\n");
+
+            let jump = match op.as_str() {
+                "==" => "jne",
+                "!=" => "je",
+                "<"  => "jge",
+                ">"  => "jle",
+                "<=" => "jg",
+                ">=" => "jl",
+                _    => bail!("Unknown operator: {}", op.as_str()),
+            };
+            text_section.push_str(&format!("    {} {}\n", jump, label_false));
+        } else {
+            // Single boolean expression
+            text_section.push_str("    cmp rax, 0\n");
             text_section.push_str(&format!("    je {}\n", label_false));
-        } else if let Ok(val) = eval_expr(expr_pair, &symbols.variables) {
-            match val {
-                FluxValue::Int(n) => {
-                    text_section.push_str(&format!("    mov rax, {}\n", n));
-                    text_section.push_str("    cmp rax, 0\n");
-                    text_section.push_str(&format!("    je {}\n", label_false));
-                }
-                _ => bail!("Condition must evaluate to an integer"),
-            }
-        } else {
-            bail!("Cannot evaluate condition: {}", val_str);
         }
     }
 
     Ok(())
+}
+
+/// Emit a value (addition node or deeper) into a register
+fn emit_operand(
+    pair: Pair<Rule>,
+    text_section: &mut String,
+    symbols: &SymbolTable,
+    var_offsets: &HashMap<String, i32>,
+    reg: &str,
+) -> Result<()> {
+    let raw = pair.as_str().trim();
+
+    // null literal → 0 (null pointer)
+    if raw == "null" {
+        text_section.push_str(&format!("    mov {}, 0\n", reg));
+        return Ok(());
+    }
+
+    // Variable on stack
+    if let Some(&offset) = var_offsets.get(raw) {
+        text_section.push_str(&format!("    mov {}, [rbp-{}]\n", reg, offset));
+        return Ok(());
+    }
+
+    // Compile-time constant
+    if let Ok(val) = eval_expr(pair, &symbols.variables) {
+        match val {
+            FluxValue::Int(n) => {
+                text_section.push_str(&format!("    mov {}, {}\n", reg, n));
+            }
+            _ => bail!("Condition operand must be integer, got: {}", raw),
+        }
+        return Ok(());
+    }
+
+    bail!("Cannot resolve condition operand: {}", raw)
 }
 
 pub fn compile_block_from_if(

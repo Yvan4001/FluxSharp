@@ -1,11 +1,9 @@
 use clap::{Parser, Subcommand};
-use std::fs;
 use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use std::collections::HashMap;
 use pest::Parser as PestParser;
 use pest_derive::Parser as PestDeriveParser;
-use std::time::Duration;
 
 pub mod advanced_security;
 pub mod async_runtime;
@@ -13,8 +11,8 @@ pub mod bounds_checker;
 pub mod error_handler;
 pub mod exception_handler;
 
-use crate::advanced_security::{validate_input_path, validate_output_path, validate_file_size, validate_main_class, process_includes};
-use crate::bounds_checker::{eval_expr, compile_condition, compile_block_from_if};
+use crate::advanced_security::{validate_input_path, validate_output_path, validate_file_size};
+use crate::bounds_checker::{eval_expr, compile_condition};
 use crate::exception_handler::{SymbolTable, FluxValue, FluxType, FunctionSignature};
 
 // ===== SECURITY CONSTRAINTS =====
@@ -158,6 +156,169 @@ fn detect_common_errors(content: &str) -> Option<String> {
     None
 }
 
+/// Load and process an imported file
+fn load_imported_file(file_path: &str, source_path: &PathBuf, symbols: &mut SymbolTable) -> Result<(String, String)> {
+    // Resolve relative path from the source directory
+    let source_dir = source_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let imported_path = source_dir.join(file_path);
+    
+    // Validate the imported file path
+    validate_input_path(&imported_path)?;
+    
+    // Read the imported file
+    let imported_content = std::fs::read_to_string(&imported_path)
+        .context(format!("Failed to read imported file: {:?}", imported_path))?;
+    
+    // Validate file size
+    validate_file_size(&imported_path)?;
+    
+    // Parse the imported file
+    let imported_file = FluxParser::parse(Rule::file, &imported_content)
+        .context(format!("Failed to parse imported file: {:?}", imported_path))?
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("Empty imported file: {:?}", imported_path))?;
+    
+    let mut data_section = String::new();
+    let mut text_section = String::new();
+    let mut unique_id: usize = 0;
+    let source_lines: Vec<&str> = imported_content.lines().collect();
+    
+    // Process classes and structs from imported file
+    for pair in imported_file.into_inner() {
+        match pair.as_rule() {
+            Rule::struct_def => {
+                let mut inner = pair.into_inner();
+                let name = inner.find(|p| p.as_rule() == Rule::ident).unwrap().as_str();
+                let mut fields = Vec::new();
+
+                for field in inner.filter(|p| p.as_rule() == Rule::struct_field) {
+                    let mut f_inner = field.into_inner();
+                    let f_type = FluxType::from_str(f_inner.next().unwrap().as_str());
+                    let f_name = f_inner.next().unwrap().as_str().to_string();
+                    fields.push((f_name, f_type));
+                }
+                symbols.structs.insert(name.to_string(), fields);
+            }
+            
+            Rule::class_def => {
+                let class_pairs: Vec<_> = pair.into_inner().collect();
+                let name = class_pairs.iter().find(|p| p.as_rule() == Rule::ident).unwrap().as_str();
+                let mut fields = Vec::new();
+
+                for prop in class_pairs.iter().filter(|p| p.as_rule() == Rule::class_property) {
+                    let mut p_inner = prop.clone().into_inner();
+                    let mut f_type_str: Option<&str> = None;
+                    let mut f_name: Option<String> = None;
+
+                    while let Some(part) = p_inner.next() {
+                        match part.as_rule() {
+                            Rule::type_ident => {
+                                f_type_str = Some(part.as_str());
+                            }
+                            Rule::ident => {
+                                let s = part.as_str();
+                                if s == "public" || s == "private" || s == "async" {
+                                    continue;
+                                }
+                                if f_type_str.is_none() {
+                                    f_type_str = Some(s);
+                                } else if f_name.is_none() {
+                                    f_name = Some(s.to_string());
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    if let (Some(f_type), Some(f_name)) = (f_type_str, f_name.clone()) {
+                        let fft = FluxType::from_str(f_type);
+                        fields.push((f_name, fft));
+                    }
+                }
+
+                symbols.structs.insert(name.to_string(), fields);
+                for method in class_pairs.iter().filter(|p| p.as_rule() == Rule::class_method) {
+                    let mut method_inner = method.clone().into_inner();
+                    let mut ret_type_str = "void";
+                    let mut method_name = "unknown";
+                    let mut params = Vec::new();
+                    let mut body_block: Option<pest::iterators::Pair<Rule>> = None;
+
+                    while let Some(item) = method_inner.next() {
+                        match item.as_rule() {
+                            Rule::type_ident => {
+                                ret_type_str = item.as_str();
+                            }
+                            Rule::ident => {
+                                let s = item.as_str();
+                                if s == "public" || s == "private" || s == "async" {
+                                    continue;
+                                }
+                                if method_name == "unknown" {
+                                    method_name = s;
+                                    continue;
+                                }
+                            }
+                            Rule::param_list => {
+                                for p in item.into_inner() {
+                                    let mut p_inner = p.into_inner();
+                                    if let Some(first_elem) = p_inner.next() {
+                                        let p_type = FluxType::from_str(first_elem.as_str());
+                                        if let Some(second_elem) = p_inner.next() {
+                                            let p_name = second_elem.as_str().to_string();
+                                            params.push((p_name, p_type));
+                                        }
+                                    }
+                                }
+                            }
+                            Rule::function_body | Rule::block => {
+                                if item.as_rule() == Rule::block {
+                                    body_block = Some(item);
+                                } else if let Some(fb) = item.into_inner().next() {
+                                    if fb.as_rule() == Rule::block {
+                                        body_block = Some(fb);
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    symbols.functions.insert(method_name.to_string(), FunctionSignature {
+                        return_type: FluxType::from_str(ret_type_str),
+                        parameters: params.clone(),
+                    });
+
+                    if let Some(block) = body_block {
+                        let sanitized_method_name = safe_func_label(method_name);
+                        let method_label = format!("{}_{}", name, sanitized_method_name);
+                        text_section.push_str(&format!("global {}\n{}:\n", method_label, method_label));
+                        text_section.push_str("    push rbp\n    mov rbp, rsp\n");
+                        let mut var_offsets = HashMap::new();
+                        let mut stack_offset = 0i32;
+                        let _ = compile_block(
+                            block,
+                            &imported_content,
+                            &source_lines,
+                            symbols,
+                            &mut data_section,
+                            &mut text_section,
+                            &mut unique_id,
+                            &mut var_offsets,
+                            &mut stack_offset,
+                            true,
+                        );
+                        text_section.push_str("    mov rsp, rbp\n    pop rbp\n    ret\n\n");
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    
+    Ok((data_section, text_section))
+}
+
 /// Compile a single .fsh source into NASM x86_64 assembly string
 fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
     let source_lines: Vec<&str> = content.lines().collect();
@@ -210,6 +371,7 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
         structs: HashMap::new(),
         functions: HashMap::new(),
         variable_types: HashMap::new(),
+        current_class: None,
     };
 
     let mut data_section = String::new();
@@ -219,10 +381,36 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
     // Header comment
     text_section.push_str(&format!("; === Compiled from {:?} by fluxc ===\n", source_path));
     text_section.push_str("extern _fsh_print_str\n");
-    text_section.push_str("extern _fsh_print_int\n\n");
+    text_section.push_str("extern _fsh_print_int\n");
+    text_section.push_str("extern _fsh_string_length\n\n");
 
     for pair in file.into_inner() {
         match pair.as_rule() {
+            Rule::using_stmt => {
+                // Extract the file path from the using directive
+                let mut inner = pair.into_inner();
+                if let Some(string_literal) = inner.next() {
+                    let string_content = string_literal.as_str();
+                    // Remove quotes from the string literal
+                    let file_path = if string_content.starts_with('"') && string_content.ends_with('"') {
+                        &string_content[1..string_content.len()-1]
+                    } else {
+                        string_content
+                    };
+                    
+                    // Load and process the imported file
+                    match load_imported_file(file_path, source_path, &mut symbols) {
+                        Ok((data_sec, text_sec)) => {
+                            data_section.push_str(&data_sec);
+                            text_section.push_str(&text_sec);
+                        }
+                        Err(e) => {
+                            eprintln!("⚠️  Warning: Failed to import file {:?}: {}", file_path, e);
+                        }
+                    }
+                }
+            }
+            
             Rule::struct_def => {
                 let mut inner = pair.into_inner();
                 let name = inner.find(|p| p.as_rule() == Rule::ident).unwrap().as_str();
@@ -340,11 +528,17 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
                     });
 
                     if let Some(block) = body_block {
-                        let method_label = format!("{}_{}", name, method_name);
+                        let sanitized_method_name = safe_func_label(method_name);
+                        let method_label = format!("{}_{}", name, sanitized_method_name);
                         text_section.push_str(&format!("global {}\n{}:\n", method_label, method_label));
                         text_section.push_str("    push rbp\n    mov rbp, rsp\n");
                         let mut var_offsets = HashMap::new();
                         let mut stack_offset = 0i32;
+                        
+                        // Set current class context
+                        let old_class = symbols.current_class.clone();
+                        symbols.current_class = Some(name.to_string());
+                        
                         compile_block(
                             block,
                             content,
@@ -357,6 +551,9 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
                             &mut stack_offset,
                             true,  // is_function
                         )?;
+                        
+                        // Restore previous class context
+                        symbols.current_class = old_class;
                     }
                 }
             }
@@ -376,16 +573,17 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
                     parameters: vec![],
                 });
 
-                if let Some(block) = inner.find(|p| p.as_rule() == Rule::block) {
-                    // --- C. Commentaire source pour la signature ---
-                    if let Some(line) = source_lines.get(line_start.saturating_sub(1)) {
-                        text_section.push_str(&format!("\n; --- {} ---\n", line.trim()));
-                    }
+                    if let Some(block) = inner.find(|p| p.as_rule() == Rule::block) {
+                        // --- C. Commentaire source pour la signature ---
+                        if let Some(line) = source_lines.get(line_start.saturating_sub(1)) {
+                            text_section.push_str(&format!("\n; --- {} ---\n", line.trim()));
+                        }
 
-                    text_section.push_str(&format!("global {}\n{}:\n", func_name, func_name));
-                    text_section.push_str("    push rbp\n    mov rbp, rsp\n");
+                        let label = safe_func_label(&func_name);
+                        text_section.push_str(&format!("global {}\n{}:\n", label, label));
+                        text_section.push_str("    push rbp\n    mov rbp, rsp\n");
 
-                    let mut var_offsets = HashMap::new();
+                        let mut var_offsets = HashMap::new();
                     let mut stack_offset = 0i32;
                     compile_block(
                         block,
@@ -426,6 +624,7 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
     // Declare external symbols from runtime
     asm.push_str("extern _fsh_print_str\n");
     asm.push_str("extern _fsh_print_int\n");
+    asm.push_str("extern _fsh_string_length\n");
     asm.push_str("extern _fsh_abs\n");
     asm.push_str("extern _fsh_max\n");
     asm.push_str("extern _fsh_min\n");
@@ -711,20 +910,34 @@ fn compile_block_with_loop_context(
                                 
                                 // Check if this is a method call (contains a dot)
                                 if func_name.contains('.') {
-                                    // Method call like "helper.GetDouble(21)"
+                                    // Method call like "helper.GetDouble(21)" or "s1.length()"
                                     if let Some(dot_pos) = func_name.find('.') {
                                         let obj_name = &func_name[..dot_pos].trim();
                                         let method_name = &func_name[dot_pos + 1..].trim();
                                         
-                                        // Look up the type of the object to generate the correct label
-                                        let class_name = symbols.variable_types.get(*obj_name)
-                                            .cloned()
-                                            .unwrap_or_else(|| obj_name.to_string());
-                                        let method_label = format!("{}_{}", class_name, method_name);
+                                        // Check for built-in string methods
+                                        let method_label = match *method_name {
+                                            "length" => "_fsh_string_length".to_string(),
+                                            _ => {
+                                                // Look up the type of the object to generate the correct label
+                                                let class_name = symbols.variable_types.get(*obj_name)
+                                                    .cloned()
+                                                    .unwrap_or_else(|| obj_name.to_string());
+                                                format!("{}_{}", class_name, method_name)
+                                            }
+                                        };
                                         
                                         // Parse arguments
                                         let args_str = expr_str[paren_pos+1..expr_str.rfind(')').unwrap_or(expr_str.len())].trim();
-                                        if !args_str.is_empty() {
+                                        
+                                        // For built-in string methods, the object must be passed in rdi
+                                        if matches!(*method_name, "length") {
+                                            // Load the object (string pointer) into rdi
+                                            if let Some(&offset) = var_offsets.get(*obj_name) {
+                                                text_section.push_str(&format!("    mov rdi, [rbp-{}]\n", offset));
+                                            }
+                                        } else if !args_str.is_empty() {
+                                            // For custom methods, load regular arguments
                                             let args: Vec<&str> = args_str.split(',').map(|s| s.trim()).collect();
                                             // Load all arguments following x86-64 calling convention
                                             let regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
@@ -788,17 +1001,26 @@ fn compile_block_with_loop_context(
                                     }
                                     
                                     // Generate function call and store result
-                                    let call_name = match func_name {
-                                        "abs" => "_fsh_abs",
-                                        "max" => "_fsh_max",
-                                        "min" => "_fsh_min",
-                                        "pow" => "_fsh_pow",
-                                        "sqrt" => "_fsh_sqrt",
-                                        "floor" => "_fsh_floor",
-                                        "ceil" => "_fsh_ceil",
-                                        "round" => "_fsh_round",
-                                        _ => func_name,
+                                    let mut call_name = match func_name {
+                                        "abs"           => "_fsh_abs".to_string(),
+                                        "max"           => "_fsh_max".to_string(),
+                                        "min"           => "_fsh_min".to_string(),
+                                        "pow"           => "_fsh_pow".to_string(),
+                                        "sqrt"          => "_fsh_sqrt".to_string(),
+                                        "floor"         => "_fsh_floor".to_string(),
+                                        "ceil"          => "_fsh_ceil".to_string(),
+                                        "round"         => "_fsh_round".to_string(),
+                                        "string_length" => "_fsh_string_length".to_string(),
+                                        _               => safe_func_label(func_name),
                                     };
+                                    
+                                    // Check if we're calling a method within the same class
+                                    if let Some(ref current_class) = symbols.current_class {
+                                         if !["abs", "max", "min", "pow", "sqrt", "floor", "ceil", "round", "string_length"].contains(&func_name) {
+                                              call_name = format!("{}_{}", current_class, call_name);
+                                         }
+                                    }
+                                    
                                     text_section.push_str(&format!("    call {}\n", call_name));
                                     text_section.push_str(&format!("    mov qword [rbp-{}], rax\n", *stack_offset));
                                 }
@@ -992,20 +1214,35 @@ fn compile_block_with_loop_context(
                     }
                 } else if let Some(obj) = object_name {
                     // Method call on object - generate a call to the method
-                    // Look up the type of the object to generate the correct label
-                    let class_name = symbols.variable_types.get(&obj)
-                        .cloned()
-                        .unwrap_or_else(|| obj.clone());  // Fallback to object name if type not found
-                    let method_label = format!("{}_{}", class_name, callee);
+                    // First, check if it's a built-in string method
+                    let method_label = match callee {
+                        "length" => "_fsh_string_length".to_string(),
+                        _ => {
+                            // Look up the type of the object to generate the correct label
+                            let class_name = symbols.variable_types.get(&obj)
+                                .cloned()
+                                .unwrap_or_else(|| obj.clone());  // Fallback to object name if type not found
+                            let sanitized_callee = safe_func_label(callee);
+                            format!("{}_{}", class_name, sanitized_callee)
+                        }
+                    };
                     
-                    // Collect arguments in registers following x86-64 calling convention
+                    // For built-in methods, pass the object in rdi
                     let mut args_code = String::new();
-                    let regs = vec!["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+                    if matches!(callee, "length") {
+                        // Load object (string pointer) into rdi
+                        if let Some(&offset) = var_offsets.get(&obj) {
+                            args_code.push_str(&format!("    mov rdi, [rbp-{}]\n", offset));
+                        }
+                    }
+                    
+                    // Collect remaining arguments in registers following x86-64 calling convention
+                    let regs = vec!["rsi", "rdx", "rcx", "r8", "r9"];
                     let mut arg_idx = 0;
                     
                     while let Some(arg_pair) = call_inner.next() {
                         if let Ok(val) = eval_expr(arg_pair, &symbols.variables) {
-                            let reg = if arg_idx < regs.len() { regs[arg_idx] } else { "rdi" };
+                            let reg = if arg_idx < regs.len() { regs[arg_idx] } else { "rsi" };
                             arg_idx += 1;
                             
                             match val {
@@ -1027,9 +1264,52 @@ fn compile_block_with_loop_context(
                     text_section.push_str(&args_code);
                     text_section.push_str(&format!("    call {}\n", method_label));
                 } else {
-                    // Regular function call
+                    // Regular function call (or implicit method call)
+                    let mut call_name = match callee {
+                        "abs"           => "_fsh_abs".to_string(),
+                        "max"           => "_fsh_max".to_string(),
+                        "min"           => "_fsh_min".to_string(),
+                        "pow"           => "_fsh_pow".to_string(),
+                        "sqrt"          => "_fsh_sqrt".to_string(),
+                        "floor"         => "_fsh_floor".to_string(),
+                        "ceil"          => "_fsh_ceil".to_string(),
+                        "round"         => "_fsh_round".to_string(),
+                        "string_length" => "_fsh_string_length".to_string(),
+                        _               => safe_func_label(callee),
+                    };
+
+                    // Check if we're calling a method within the same class
+                    if let Some(ref current_class) = symbols.current_class {
+                         if !["abs", "max", "min", "pow", "sqrt", "floor", "ceil", "round", "string_length"].contains(&callee) {
+                             call_name = format!("{}_{}", current_class, call_name);
+                         }
+                    }
+
                     text_section.push_str(&format!("    ; Function call: {}\n", callee));
-                    text_section.push_str(&format!("    call {}\n", callee));
+
+                    // Basic argument passing support
+                    let regs = vec!["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+                    let mut arg_idx = 0;
+                    while let Some(arg_pair) = call_inner.next() {
+                         let reg = if arg_idx < regs.len() { regs[arg_idx] } else { "rdi" };
+                         arg_idx += 1;
+                         
+                         if let Ok(val) = eval_expr(arg_pair, &symbols.variables) {
+                             match val {
+                                 FluxValue::Int(n) => text_section.push_str(&format!("    mov {}, {}\n", reg, n)),
+                                 FluxValue::Str(text) => {
+                                    let label = format!("str_{}", *unique_id);
+                                    *unique_id += 1;
+                                    let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
+                                    data_section.push_str(&format!("{}: db \"{}\", 0\n", label, escaped));
+                                    text_section.push_str(&format!("    lea {}, [rel {}]\n", reg, label));
+                                 }
+                                 _ => {}
+                             }
+                         }
+                    }
+
+                    text_section.push_str(&format!("    call {}\n", call_name));
                 }
             }
 
@@ -1237,9 +1517,22 @@ fn compile_block_with_loop_context(
             }
 
             Rule::if_stmt => {
-                dbg!(&statement);
-                compile_block_from_if(
-                    statement,
+                let mut if_inner = statement.into_inner();
+                let condition_pair = if_inner.next().unwrap();
+                let then_block = if_inner.next().unwrap();
+                let else_part = if_inner.next();
+                
+                let label_id = *unique_id;
+                *unique_id += 1;
+                let label_false = format!(".if_false_{}", label_id);
+                let label_end = format!(".if_end_{}", label_id);
+                
+                // Compile condition
+                compile_condition(condition_pair, &label_false, text_section, symbols, &var_offsets)?;
+                
+                // Compile then-block
+                compile_block_with_loop_context(
+                    then_block,
                     content,
                     source_lines,
                     symbols,
@@ -1248,9 +1541,58 @@ fn compile_block_with_loop_context(
                     unique_id,
                     var_offsets,
                     stack_offset,
+                    false,
                     loop_start.clone(),
                     loop_end.clone(),
                 )?;
+                
+                text_section.push_str(&format!("    jmp {}\n", label_end));
+                text_section.push_str(&format!("{}:\n", label_false));
+                
+                // Compile else-block if present
+                if let Some(else_pair) = else_part {
+                    let mut else_inner = else_pair.into_inner();
+                    if let Some(else_block) = else_inner.next() {
+                        match else_block.as_rule() {
+                            Rule::block => {
+                                compile_block_with_loop_context(
+                                    else_block,
+                                    content,
+                                    source_lines,
+                                    symbols,
+                                    data_section,
+                                    text_section,
+                                    unique_id,
+                                    var_offsets,
+                                    stack_offset,
+                                    false,
+                                    loop_start.clone(),
+                                    loop_end.clone(),
+                                )?;
+                            }
+                            Rule::if_stmt => {
+                                // else if - recursively handle
+                                compile_block_with_loop_context(
+                                    else_block,
+                                    content,
+                                    source_lines,
+                                    symbols,
+                                    data_section,
+                                    text_section,
+                                    unique_id,
+                                    var_offsets,
+                                    stack_offset,
+                                    false,
+                                    loop_start.clone(),
+                                    loop_end.clone(),
+                                )?;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                
+                text_section.push_str(&format!("{}:\n", label_end));
             }
 
             Rule::for_loop => {
@@ -1296,7 +1638,7 @@ fn compile_block_with_loop_context(
 
                 // Increment
                 text_section.push_str(&format!("{}:\n", label_continue));
-                let inc_str = increment_pair.as_str();
+                let inc_str = increment_pair.as_str().trim();
                 if inc_str.contains("++") {
                     let var = inc_str.replace("++", "").trim().to_string();
                     if let Some(&offset) = var_offsets.get(&var) {
@@ -1306,6 +1648,50 @@ fn compile_block_with_loop_context(
                     let var = inc_str.replace("--", "").trim().to_string();
                     if let Some(&offset) = var_offsets.get(&var) {
                         text_section.push_str(&format!("    dec qword [rbp-{}]\n", offset));
+                    }
+                } else if let Some(eq_pos) = inc_str.find('=') {
+                    // Handle "i = i + 1", "i = i - 1", "i = i + 2", etc.
+                    let lhs_var = inc_str[..eq_pos].trim().to_string();
+                    let rhs = inc_str[eq_pos + 1..].trim();
+
+                    if let Some(&offset) = var_offsets.get(&lhs_var) {
+                        // Try to detect "var OP literal" pattern
+                        let ops: &[(&str, &str)] = &[("+", "add"), ("-", "sub"), ("*", "imul")];
+                        let mut emitted = false;
+
+                        for (op_sym, asm_op) in ops {
+                            // Find the operator, but skip if it's part of the variable name
+                            if let Some(op_pos) = rhs.find(op_sym) {
+                                let rhs_var = rhs[..op_pos].trim();
+                                let rhs_num = rhs[op_pos + op_sym.len()..].trim();
+
+                                if rhs_var == lhs_var {
+                                    if let Ok(n) = rhs_num.parse::<i64>() {
+                                        text_section.push_str(&format!(
+                                            "    {} qword [rbp-{}], {}\n",
+                                            asm_op, offset, n
+                                        ));
+                                        emitted = true;
+                                        break;
+                                    }
+                                    // rhs_num might be another variable
+                                    if let Some(&rhs_offset) = var_offsets.get(rhs_num) {
+                                        text_section.push_str(&format!(
+                                            "    mov rax, [rbp-{}]\n    {} qword [rbp-{}], rax\n",
+                                            rhs_offset, asm_op, offset
+                                        ));
+                                        emitted = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        if !emitted {
+                            // Generic fallback: evaluate RHS and store
+                            text_section.push_str(&format!("    mov rax, [rbp-{}]\n", offset));
+                            text_section.push_str(&format!("    mov qword [rbp-{}], rax\n", offset));
+                        }
                     }
                 }
 
@@ -1467,16 +1853,132 @@ fn compile_block_with_loop_context(
     Ok(())
 }
 
-/// Sanitize function/symbol names to avoid NASM mnemonic conflicts
-/// User-defined functions that conflict with NASM mnemonics get prefixed with _fsh_user_
-fn sanitize_asm_name(name: &str) -> String {
-    match name {
-        // NASM x86-64 mnemonics that could conflict
-        "add" | "sub" | "mul" | "div" | "and" | "or" | "not" | "xor"
-        | "mov" | "lea" | "push" | "pop" | "call" | "ret" | "inc" | "dec"
-        | "cmp" | "jmp" | "je" | "jne" | "jl" | "jg" | "jle" | "jge"
-        => format!("_fsh_user_{}", name),
-        _ => name.to_string(),
+// --- Main CLI Entry Point ---
+
+#[derive(Parser, Debug)]
+#[command(name = "fluxc")]
+#[command(about = "FluxSharp Compiler - Compile .fsh files to x86_64 assembly and executables", long_about = None)]
+struct Args {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Compile a FluxSharp source file
+    Compile {
+        /// Source file path (.fsh)
+        #[arg(value_name = "FILE")]
+        input: PathBuf,
+
+        /// Output file path (-o executable)
+        #[arg(short, value_name = "FILE")]
+        output: Option<PathBuf>,
+    },
+}
+
+fn main() -> Result<()> {
+    let args = Args::parse();
+
+    match args.command {
+        Commands::Compile { input, output } => {
+            // Validate input path
+            validate_input_path(&input)?;
+
+            // Read source file
+            let content = std::fs::read_to_string(&input)
+                .context(format!("Failed to read source file: {:?}", input))?;
+
+            // Validate file size
+            validate_file_size(&input)?;
+
+            // Compile to assembly
+            let asm_output = compile_fsh_to_asm(&content, &input)?;
+
+            // Write assembly file
+            let asm_path = if let Some(ref out) = output {
+                out.with_extension("asm")
+            } else {
+                input.with_extension("asm")
+            };
+            validate_output_path(&asm_path)?;
+            std::fs::write(&asm_path, &asm_output)
+                .context(format!("Failed to write assembly file: {:?}", asm_path))?;
+            eprintln!("📝 Generated ASM: {:?}", asm_path);
+
+            // Assemble with NASM
+            let obj_path = asm_path.with_extension("o");
+            let nasm_status = std::process::Command::new("nasm")
+                .args(&["-f", "elf64", "-o"])
+                .arg(&obj_path)
+                .arg(&asm_path)
+                .status()
+                .context("Failed to run NASM assembler")?;
+
+            if !nasm_status.success() {
+                bail!("NASM failed for {:?}", asm_path);
+            }
+            eprintln!("🔨 Assembled: {:?}", obj_path);
+
+            // Assemble runtime
+            let runtime_asm = "flux_compiler/fluxc/runtime/runtime.asm";
+            let runtime_obj = "flux_compiler/fluxc/runtime/runtime.o";
+            let nasm_status = std::process::Command::new("nasm")
+                .args(&["-f", "elf64", "-o"])
+                .arg(runtime_obj)
+                .arg(runtime_asm)
+                .status()
+                .context("Failed to assemble runtime")?;
+
+            if !nasm_status.success() {
+                eprintln!("⚠️  Linked with warnings: {:?}", output.as_ref().unwrap_or(&input));
+            } else {
+                eprintln!("🔨 Assembled runtime: {}", runtime_obj);
+            }
+
+            // Link to executable
+            let exe_path = output.unwrap_or_else(|| {
+                input.with_extension("exe")
+            });
+            validate_output_path(&exe_path)?;
+
+            let ld_status = std::process::Command::new("ld")
+                .arg("-o")
+                .arg(&exe_path)
+                .arg(&obj_path)
+                .arg(runtime_obj)
+                .arg("-lc")
+                .arg("-dynamic-linker")
+                .arg("/lib64/ld-linux-x86-64.so.2")
+                .status()
+                .context("Failed to run linker")?;
+
+            if !ld_status.success() {
+                eprintln!("❌ Executable not created: {:?}", exe_path);
+                bail!("Linker failed");
+            }
+
+            eprintln!("✅ Linked binary: {:?}", exe_path);
+        }
+    }
+
+    Ok(())
+}
+
+/// Safe function label generator - avoids NASM mnemonic collisions
+/// User-defined functions that conflict with NASM mnemonics get prefixed with _usr_
+fn safe_func_label(name: &str) -> String {
+    const NASM_RESERVED: &[&str] = &[
+        "add", "sub", "mul", "div", "and", "or", "not", "xor",
+        "mov", "cmp", "jmp", "ret", "call", "push", "pop",
+        "inc", "dec", "neg", "nop", "hlt", "int",
+        "lea", "je", "jne", "jl", "jg", "jle", "jge",
+    ];
+    
+    if NASM_RESERVED.contains(&name) {
+        format!("_usr_{}", name)
+    } else {
+        name.to_string()
     }
 }
 
