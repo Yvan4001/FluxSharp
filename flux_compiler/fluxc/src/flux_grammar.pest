@@ -12,6 +12,7 @@ float_literal = @{ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ ("f" | "F") }
 double_literal = @{ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ (("e" | "E") ~ ("+" | "-")? ~ ASCII_DIGIT+)? }
 int_literal = @{ hex_literal | bin_literal | oct_literal | dec_literal }
 bool_literal = @{ "true" | "false" }
+null_literal = @{ "null" }
 string_literal = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
 char_literal = @{ "'" ~ (!"'" ~ ANY)* ~ "'" }
 
@@ -24,18 +25,19 @@ await_keyword = { "await" }
 new_keyword = { "new" }
 
 // Operators
-arith_op = { "+" | "-" | "*" | "/" | "%" }
+#[allow(dead_code)]
 bitwise_op = { "&" | "|" | "^" | "<<" | ">>" }
+#[allow(dead_code)]
 logical_op = { "&&" | "||" }
-comparison_op = { "<=" | ">=" | "<" | ">" | "==" | "!=" }
 assignment_op = { "=" | "+=" | "-=" }
 increment_op = { "++" | "--" }
 
-// Expressions - simplified for clarity
+// Expressions - proper operator precedence hierarchy
 unary_op = { "+" | "-" | "!" }
 
 primary = {
     bool_literal
+    | null_literal
     | float_literal
     | double_literal
     | int_literal
@@ -46,22 +48,40 @@ primary = {
 }
 
 unary = {
-    unary_op? ~ primary ~ (
-        "(" ~ (expr ~ ("," ~ expr)*)? ~ ")"    // Function call
-        | "[" ~ expr ~ "]"                      // Array access
-        | "." ~ ident                           // Member access
-    )*
+    unary_op? ~ postfix
 }
 
 postfix = {
-    unary ~ (
+    primary ~ (
         "(" ~ (expr ~ ("," ~ expr)*)? ~ ")"    // Function call
         | "[" ~ expr ~ "]"                      // Array access
         | "." ~ ident                           // Member access
     )*
 }
 
-expr = { postfix ~ ((arith_op | bitwise_op | logical_op | comparison_op) ~ postfix)* }
+multiplication = {
+    unary ~ (("*" | "/" | "%") ~ unary)*
+}
+
+addition = {
+    multiplication ~ (("+" | "-") ~ multiplication)*
+}
+
+comparison = {
+    addition ~ (comparison_op ~ addition)?
+}
+
+logical_and = {
+    comparison ~ ("&&" ~ comparison)*
+}
+
+logical_or = {
+    logical_and ~ ("||" ~ logical_and)*
+}
+
+expr = { logical_or }
+
+comparison_op = { "==" | "!=" | "<=" | ">=" | "<" | ">" }
 
 new_expr = {
     new_keyword ~ ident ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")"
@@ -120,6 +140,9 @@ condition = { "(" ~ expr ~ ")" }
 increment = { ident ~ ("++" | "--" | (assignment_op ~ expr)) }
 increment_stmt = { ident ~ increment_op ~ ";" }
 
+// For loop increment - supports both i++ and i = i + 1
+for_increment = { (increment_stmt | assignment_stmt) }
+
 // Assignment statement - handles: x = 5, obj.prop = 5, arr[0] = 5
 // Order matters in PEG: try longest match first
 assignment_stmt = { 
@@ -133,7 +156,7 @@ assignment_stmt = {
 for_init = { (type_ident | ident) ~ ident ~ ("=" ~ expr)? }
 
 for_loop = {
-    "for" ~ "(" ~ for_init ~ ";" ~ condition ~ ";" ~ increment ~ ")" ~ block
+    "for" ~ "(" ~ for_init ~ ";" ~ condition ~ ";" ~ (ident ~ ("++" | "--" | (assignment_op ~ expr)))? ~ ")" ~ block
 }
 
 while_loop = {

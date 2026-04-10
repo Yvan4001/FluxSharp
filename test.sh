@@ -3,7 +3,7 @@
 # Tests: Bounds Checking, Advanced Security, Async/Await, Exception Handling
 
 export PATH="$HOME/.cargo/bin:$PATH"
-set -e
+# Don't use 'set -e' here - we want tests to continue even if one fails
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPILER_DIR="$PROJECT_DIR/flux_compiler"
@@ -366,14 +366,15 @@ main() {
         echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo -e "${GREEN}✅ ALL TESTS PASSED!${NC}"
         echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        return 0
+        exit 0
     else
         echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo -e "${RED}❌ SOME TESTS FAILED${NC}"
         echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        return 1
+        exit 1
     fi
 }
 
 # Run main
 main "$@"
+exit $?
