@@ -1,0 +1,21 @@
+name: FluxSharp CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install NASM & Binutils
+        run: sudo apt-get update && sudo apt-get install -y nasm binutils
+
+      - name: Build Compiler
+        run: cd flux_compiler && cargo build --release
+
+      - name: Run Security & Logic Tests
+        run: chmod +x build.sh && ./build.sh --test
