@@ -1,12 +1,11 @@
 use clap::{Parser, Subcommand};
 use std::fs;
-use std::path::{PathBuf, Path};
+use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use std::collections::HashMap;
 use pest::Parser as PestParser;
 use pest_derive::Parser as PestDeriveParser;
 use std::time::Duration;
-use std::env;
 
 pub mod advanced_security;
 pub mod async_runtime;
@@ -19,11 +18,13 @@ use crate::bounds_checker::{eval_expr, compile_condition, compile_block_from_if}
 use crate::exception_handler::{SymbolTable, FluxValue, FluxType, FunctionSignature};
 
 // ===== SECURITY CONSTRAINTS =====
+#[allow(dead_code)]
 const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;  // 50 MB
 const MAX_ASM_OUTPUT_SIZE: usize = 100 * 1024 * 1024;  // 100 MB
 const MAX_STATEMENTS_PER_BLOCK: usize = 10_000;  // Limit statements to prevent infinite loops
 #[allow(dead_code)]
 const MAX_EXPRESSION_DEPTH: usize = 100;  // Limit recursion depth
+#[allow(dead_code)]
 const MAX_OPERATOR_CHAIN: usize = 1_000;  // Limit operators in one expression
 const RUN_TIMEOUT_SECS: u64 = 30;  // 30 seconds max runtime
 #[allow(dead_code)]
@@ -1709,6 +1710,7 @@ fn run_with_timeout(bin_path: &PathBuf) -> Result<()> {
 }
 
 // --- Evaluation of math function calls ---
+#[allow(dead_code)]
 fn eval_math_function(func_name: &str, args: Vec<FluxValue>) -> Result<FluxValue> {
     match func_name {
         "sqrt" => {

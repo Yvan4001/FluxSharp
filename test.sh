@@ -46,10 +46,8 @@ run_test() {
     fi
     
     # Try to compile
-    echo -e "\n${YELLOW}DEBUG: Compiling $test_file...${NC}"
     compile_output=$("$FLUXC_BIN" compile "$test_file" -o /tmp/test_prog 2>&1)
     compile_exit=$?
-    echo -e "${YELLOW}DEBUG: Compilation finished. Exit code: $compile_exit${NC}"
     
     if [ $compile_exit -ne 0 ]; then
         if [ "$expected_error" -eq 1 ]; then
@@ -77,10 +75,8 @@ run_test() {
     fi
     
     # Try to run the program with a timeout
-    echo -e "${YELLOW}DEBUG: Running /tmp/test_prog...${NC}"
     run_output=$(timeout 15s /tmp/test_prog 2>&1)
     run_exit=$?
-    echo -e "${YELLOW}DEBUG: Run finished. Exit code: $run_exit${NC}"
     
     # Check if program output contains "PASS" (success indicator)
     if echo "$run_output" | grep -q "PASS"; then
