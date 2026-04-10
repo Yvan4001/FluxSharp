@@ -11,6 +11,7 @@ extern _fsh_min
 extern _fsh_pow
 extern _fsh_floor
 extern _fsh_ceil
+extern _fsh_round
 extern _fsh_sqrt
 
 section .data

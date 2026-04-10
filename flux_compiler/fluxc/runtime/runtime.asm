@@ -320,12 +320,36 @@ _fsh_pow:
 .pow_end:
     ret
 
+; --- _fsh_panic_bounds ---
+; Panic function for out-of-bounds array access
+global _fsh_panic_bounds
+_fsh_panic_bounds:
+    lea rdi, [rel bounds_error_msg]
+    call _fsh_print_str
+    mov rdi, 1
+    mov rax, 60
+    syscall
+
+global _fsh_string_length
+_fsh_string_length:
+    ; rdi = pointer to null-terminated string
+    ; returns length in rax
+    xor rax, rax
+.loop:
+    cmp byte [rdi + rax], 0
+    je  .done
+    inc rax
+    jmp .loop
+.done:
+    ret
+
 section .bss
     buffer resb 40
     fbuffer resb 64
     dbuffer resb 64
 section .data
     newline: db 10            ; '\n' character
+    bounds_error_msg: db "FATAL: Array index out of bounds", 0
     multiplier: dq 1000.0
     million: dq 1000000.0
     hundred: dq 100.0

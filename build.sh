@@ -1,4 +1,5 @@
 #!/bin/bash
+export PATH="$HOME/.cargo/bin:$PATH"
 set -e
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,7 +43,7 @@ echo "✅ All dependencies found"
 echo ""
 
 echo "🔨 Step 1: Building Rust compiler..."
-(cd "$COMPILER_DIR" && cargo build --release 2>&1 | tail -5)
+(cd "$COMPILER_DIR" && cargo build --release)
 
 [ -f "$FLUXC_BIN" ] || { echo "❌ Binary not found: $FLUXC_BIN"; exit 1; }
 echo "✅ Compiler ready: $FLUXC_BIN"
@@ -57,7 +58,8 @@ if [ "$RUN_TESTS" = true ]; then
 fi
 
 echo "📝 Step 2: Compiling FluxSharp → Executable..."
-if ! "$FLUXC_BIN" compile "$FSH_SOURCE" -o "$EXECUTABLE" 2>&1; then
+(cd "$PROJECT_DIR" && "$FLUXC_BIN" compile "$FSH_SOURCE" -o "$EXECUTABLE" 2>&1)
+if [ $? -ne 0 ]; then
     echo "❌ Compilation failed"
     exit 1
 fi
@@ -75,4 +77,3 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "✅ Done!"
 echo ""
 echo "💡 Tip: Run './build.sh --test' to run comprehensive test suite"
-

@@ -12,6 +12,7 @@ float_literal = @{ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ ("f" | "F") }
 double_literal = @{ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ (("e" | "E") ~ ("+" | "-")? ~ ASCII_DIGIT+)? }
 int_literal = @{ hex_literal | bin_literal | oct_literal | dec_literal }
 bool_literal = @{ "true" | "false" }
+null_literal = @{ "null" }
 string_literal = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
 char_literal = @{ "'" ~ (!"'" ~ ANY)* ~ "'" }
 
@@ -24,18 +25,17 @@ await_keyword = { "await" }
 new_keyword = { "new" }
 
 // Operators
-arith_op = { "+" | "-" | "*" | "/" | "%" }
 bitwise_op = { "&" | "|" | "^" | "<<" | ">>" }
 logical_op = { "&&" | "||" }
-comparison_op = { "<=" | ">=" | "<" | ">" | "==" | "!=" }
 assignment_op = { "=" | "+=" | "-=" }
 increment_op = { "++" | "--" }
 
-// Expressions - simplified for clarity
+// Expressions - proper operator precedence hierarchy
 unary_op = { "+" | "-" | "!" }
 
 primary = {
     bool_literal
+    | null_literal
     | float_literal
     | double_literal
     | int_literal
@@ -46,22 +46,40 @@ primary = {
 }
 
 unary = {
-    unary_op? ~ primary ~ (
-        "(" ~ (expr ~ ("," ~ expr)*)? ~ ")"    // Function call
-        | "[" ~ expr ~ "]"                      // Array access
-        | "." ~ ident                           // Member access
-    )*
+    unary_op? ~ postfix
 }
 
 postfix = {
-    unary ~ (
+    primary ~ (
         "(" ~ (expr ~ ("," ~ expr)*)? ~ ")"    // Function call
         | "[" ~ expr ~ "]"                      // Array access
         | "." ~ ident                           // Member access
     )*
 }
 
-expr = { postfix ~ ((arith_op | bitwise_op | logical_op | comparison_op) ~ postfix)* }
+multiplication = {
+    unary ~ (("*" | "/" | "%") ~ unary)*
+}
+
+addition = {
+    multiplication ~ (("+" | "-") ~ multiplication)*
+}
+
+comparison = {
+    addition ~ (comparison_op ~ addition)?
+}
+
+logical_and = {
+    comparison ~ ("&&" ~ comparison)*
+}
+
+logical_or = {
+    logical_and ~ ("||" ~ logical_and)*
+}
+
+expr = { logical_or }
+
+comparison_op = { "==" | "!=" | "<=" | ">=" | "<" | ">" }
 
 new_expr = {
     new_keyword ~ ident ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")"
@@ -93,7 +111,7 @@ size_expr = { int_literal ~ (("*" | "+") ~ int_literal)* }
 array_decl = { (type_ident | ident) ~ "[" ~ size_expr ~ "]" ~ ident ~ ";" }
 
 // Array access statement
-array_access = { ident ~ "[" ~ expr ~ "]" ~ "=" ~ expr ~ ";" }
+array_access = { ident ~ "[" ~ expr ~ "]" }
 
 // Attribute
 attribute = { "[" ~ ident ~ ("(" ~ int_literal ~ ")")? ~ "]" }
@@ -114,21 +132,33 @@ class_def = {
     attribute? ~ "public"? ~ "static"? ~ "private"? ~ "class" ~ ident ~ (":" ~ ident)? ~ "{" ~ (class_property | class_method | class_constructor)* ~ "}"
 }
 
-// Condition 
-condition = {
-    "(" ~ condition ~ ")"
-    | expr
-}
+// Condition - just the expression
+condition = { expr }
 
 increment = { ident ~ ("++" | "--" | (assignment_op ~ expr)) }
 increment_stmt = { ident ~ increment_op ~ ";" }
 
-assignment_stmt = { ident ~ ("." ~ ident)? ~ ("["~ expr ~ "]")? ~ assignment_op ~ expr ~ ";" }
+// For loop increment - supports both i++ and i = i + 1, without trailing semicolon
+for_increment = {
+    ident ~ "++"
+    | ident ~ "--"
+    | ident ~ assignment_op ~ expr
+}
+
+// Assignment statement - handles: x = 5, obj.prop = 5, arr[0] = 5
+// Order matters in PEG: try longest match first
+assignment_stmt = { 
+    (
+        ident ~ "[" ~ expr ~ "]" ~ assignment_op ~ expr    // arr[0] = 42 (array access)
+        | ident ~ "." ~ ident ~ assignment_op ~ expr       // obj.prop = 42 (member access)
+        | ident ~ assignment_op ~ expr                      // x = 42 (simple)
+    ) ~ ";"
+}
 
 for_init = { (type_ident | ident) ~ ident ~ ("=" ~ expr)? }
 
 for_loop = {
-    "for" ~ "(" ~ for_init ~ ";" ~ condition ~ ";" ~ increment ~ ")" ~ block
+    "for" ~ "(" ~ for_init ~ ";" ~ condition ~ ";" ~ for_increment? ~ ")" ~ block
 }
 
 while_loop = {
@@ -164,9 +194,11 @@ statement = _{
     | array_decl
     | increment_stmt
     | assignment_stmt
-    | array_access
     | function_call
 }
 
+// Using directive for file imports
+using_stmt = { "using" ~ string_literal ~ ";" }
+
 // File root - Only classes and structs allowed (no global functions)
-file = { SOI ~ (const_decl | struct_def | class_def)* ~ EOI }
+file = { SOI ~ using_stmt* ~ (const_decl | struct_def | class_def)* ~ EOI }
