@@ -8,11 +8,15 @@ use pest_derive::Parser as PestDeriveParser;
 use std::time::Duration;
 use std::env;
 
-mod error_handler;
-mod bounds_checker;
-mod advanced_security;
-mod async_runtime;
-mod exception_handler;
+pub mod advanced_security;
+pub mod async_runtime;
+pub mod bounds_checker;
+pub mod error_handler;
+pub mod exception_handler;
+
+use crate::advanced_security::{validate_input_path, validate_output_path, validate_file_size, validate_main_class, process_includes};
+use crate::bounds_checker::{eval_expr, compile_condition, compile_block_from_if};
+use crate::exception_handler::{SymbolTable, FluxValue, FluxType, FunctionSignature};
 
 // ===== SECURITY CONSTRAINTS =====
 const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;  // 50 MB
@@ -25,257 +29,6 @@ const RUN_TIMEOUT_SECS: u64 = 30;  // 30 seconds max runtime
 #[allow(dead_code)]
 const RUN_MEMORY_LIMIT_MB: u64 = 512;  // 512 MB memory limit
 
-// ===== SECURITY FUNCTIONS =====
-
-/// Validate that a file size is within acceptable limits
-fn validate_file_size(path: &PathBuf) -> Result<()> {
-    let metadata = fs::metadata(path)
-        .with_context(|| format!("Cannot access file: {:?}", path))?;
-    
-    if metadata.len() > MAX_FILE_SIZE {
-        bail!(
-            "File too large: {:?} ({} bytes > {} bytes limit)",
-            path,
-            metadata.len(),
-            MAX_FILE_SIZE
-        );
-    }
-    
-    if metadata.len() == 0 {
-        bail!("File is empty: {:?}", path);
-    }
-    
-    Ok(())
-}
-
-/// Validate output path to prevent path traversal attacks
-fn validate_output_path(path: &Path) -> Result<()> {
-    // Check for ".." in path which indicates path traversal attempt
-    let path_str = path.to_string_lossy();
-    if path_str.contains("..") {
-        bail!("Path traversal detected: {:?} contains '..'", path);
-    }
-    
-    // Get the current working directory
-    let cwd = env::current_dir()
-        .context("Cannot determine current working directory")?;
-    
-    // Convert to absolute path
-    let absolute_path = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        cwd.join(path)
-    };
-    
-    // Try to resolve parent for new files
-    let parent = absolute_path.parent().unwrap_or(&absolute_path);
-    
-    // Check that parent exists or can be created
-    if !parent.exists() {
-        // For new files, check that the parent's parent exists
-        if let Some(grandparent) = parent.parent() {
-            if !grandparent.exists() {
-                bail!("Parent directory does not exist: {:?}", parent);
-            }
-        }
-    }
-    
-    // Check path doesn't escape current working directory (except /tmp which is allowed)
-    let normalized = match absolute_path.canonicalize() {
-        Ok(canon) => canon,
-        Err(_) => {
-            // If canonicalize fails, at least check it's under cwd
-            absolute_path.clone()
-        }
-    };
-    
-    if !normalized.starts_with(&cwd) && !normalized.starts_with("/tmp") {
-        bail!(
-            "Path traversal detected: {:?} is outside allowed directories",
-            normalized
-        );
-    }
-    
-    Ok(())
-}
-
-/// Validate that input path is safe to read
-fn validate_input_path(path: &Path) -> Result<()> {
-    // Check if path contains suspicious patterns
-    let path_str = path.to_string_lossy();
-    
-    if path_str.contains("..") {
-        bail!("Path traversal detected in input: {:?}", path);
-    }
-    
-    // Check if it's a symlink (to prevent TOCTOU attacks)
-    if path.is_symlink() {
-        bail!("Symlinks are not allowed: {:?}", path);
-    }
-    
-    // Verify it's actually a file
-    if !path.is_file() {
-        bail!("Input path is not a regular file: {:?}", path);
-    }
-    
-    Ok(())
-}
-
-/// Validate that file has exactly one Main class with main method
-fn validate_main_class(content: &str) -> Result<()> {
-    let main_class_count = content.matches("class Main").count();
-    let main_method_count = content.matches("void main()").count() + content.matches("void main ()").count();
-    
-    if main_class_count == 0 {
-        bail!(
-            "❌ MISSING MAIN CLASS\n\n\
-            Your program must have exactly one 'class Main' with a 'void main()' method.\n\n\
-            Example:\n\
-            public class Main {{\n\
-                public void main() {{\n\
-                    print(\"Hello, World!\");\n\
-                }}\n\
-            }}\n"
-        );
-    }
-    
-    if main_class_count > 1 {
-        bail!(
-            "❌ MULTIPLE MAIN CLASSES\n\n\
-            Your program has {} 'class Main' declarations.\n\
-            You must have exactly one 'class Main'.\n",
-            main_class_count
-        );
-    }
-    
-    if main_method_count == 0 {
-        bail!(
-            "❌ MISSING MAIN METHOD\n\n\
-            Your 'class Main' must have exactly one 'void main()' method.\n\n\
-            Example:\n\
-            public class Main {{\n\
-                public void main() {{\n\
-                    print(\"Hello, World!\");\n\
-                }}\n\
-            }}\n"
-        );
-    }
-    
-    if main_method_count > 1 {
-        bail!(
-            "❌ MULTIPLE MAIN METHODS\n\n\
-            Your 'class Main' has {} 'void main()' methods.\n\
-            You must have exactly one 'void main()' method.\n",
-            main_method_count
-        );
-    }
-    
-    Ok(())
-}
-
-/// Internal helper to process includes with circular dependency detection
-fn process_includes_internal(
-    content: &str,
-    base_dir: &Path,
-    included_files: &mut std::collections::HashSet<String>,
-) -> Result<String> {
-    let mut result = String::new();
-    
-    for line in content.lines() {
-        let trimmed = line.trim();
-        
-        // Check for C# style import/using: using "filename.fsh"; or import "filename.fsh";
-        let is_using = trimmed.starts_with("using ") && trimmed.ends_with(";");
-        let is_import = trimmed.starts_with("import ") && trimmed.ends_with(";");
-        // Check for legacy include directive: // #include "filename.fsh"
-        let is_legacy_include = trimmed.starts_with("//") && trimmed.contains("#include") && trimmed.contains("\"");
-        
-        if is_using || is_import || is_legacy_include {
-            // Extract filename from the different formats
-            let filename = if let Some(start) = trimmed.find('"') {
-                if let Some(end) = trimmed.rfind('"') {
-                    if start < end {
-                        Some(&trimmed[start + 1..end])
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-            
-            if let Some(filename) = filename {
-                // Validate that it's a .fsh file
-                if !filename.ends_with(".fsh") {
-                    bail!(
-                        "❌ INVALID IMPORT FILE\n\n\
-                        Import/using directive contains non-.fsh file: '{}'\n\
-                        Only .fsh files are allowed.\n\n\
-                        Correct formats:\n\
-                        using \"myfile.fsh\";\n\
-                        import \"myfile.fsh\";\n",
-                        filename
-                    );
-                }
-                
-                // Build the path
-                let include_path = base_dir.join(filename);
-                
-                // Check if file exists first, before path validation
-                if !include_path.exists() {
-                    bail!(
-                        "❌ IMPORT FILE NOT FOUND\n\n\
-                        Cannot find imported file: '{}'\n\
-                        Looked in: {:?}\n",
-                        filename,
-                        include_path
-                    );
-                }
-                
-                // Validate path doesn't escape base directory
-                validate_input_path(&include_path)?;
-                
-                // Prevent circular includes
-                if included_files.contains(filename) {
-                    bail!(
-                        "❌ CIRCULAR IMPORT\n\n\
-                        Circular import detected: '{}' already imported.\n",
-                        filename
-                    );
-                }
-                included_files.insert(filename.to_string());
-                
-                // Read and include the file
-                eprintln!("📥 Importing: {}", filename);
-                let included_content = fs::read_to_string(&include_path)
-                    .with_context(|| format!("Cannot read imported file: {}", filename))?;
-                
-                // Validate file size
-                validate_file_size(&include_path)?;
-                
-                // Recursively process includes in the included file
-                let processed = process_includes_internal(&included_content, base_dir, included_files)?;
-                result.push_str(&processed);
-                result.push('\n');
-                continue;
-            }
-        }
-        
-        // Regular line - add as-is
-        result.push_str(line);
-        result.push('\n');
-    }
-    
-    Ok(result)
-}
-
-/// Process include statements and load external .fsh files
-fn process_includes(content: &str, base_dir: &Path) -> Result<String> {
-    let mut included_files = std::collections::HashSet::new();
-    process_includes_internal(content, base_dir, &mut included_files)
-}
 
 // --- 1. CONFIGURATION DU PARSEUR PEST ---
 #[derive(PestDeriveParser)]
@@ -703,6 +456,134 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
     Ok(asm)
 }
 
+fn compile_expr(
+    expr_pair: pest::iterators::Pair<Rule>,
+    symbols: &SymbolTable,
+    var_offsets: &HashMap<String, i32>,
+    text_section: &mut String,
+    unique_id: &mut usize,
+    data_section: &mut String,
+) -> Result<()> {
+    let mut inner = expr_pair.into_inner();
+    let first = match inner.next() {
+        Some(p) => p,
+        None => {
+            text_section.push_str("    ; ERROR: Malformed expression\n");
+            return Ok(());
+        }
+    };
+
+    match first.as_rule() {
+        Rule::primary => {
+            let primary_inner = match first.into_inner().next() {
+                Some(p) => p,
+                None => {
+                    text_section.push_str("    ; ERROR: Malformed primary expression\n");
+                    return Ok(());
+                }
+            };
+            match primary_inner.as_rule() {
+                Rule::int_literal => {
+                    let val = match primary_inner.as_str().parse::<i64>() {
+                        Ok(v) => v,
+                        Err(_) => {
+                            text_section.push_str("    ; ERROR: Invalid integer literal\n");
+                            return Ok(());
+                        }
+                    };
+                    text_section.push_str(&format!("    mov rax, {}\n", val));
+                }
+                Rule::ident => {
+                    if let Some(offset) = var_offsets.get(primary_inner.as_str()) {
+                        text_section.push_str(&format!("    mov rax, [rbp-{}]\n", offset));
+                    } else {
+                        bail!("Undefined variable: {}", primary_inner.as_str());
+                    }
+                }
+                Rule::string_literal => {
+                    if let Some(str_inner) = primary_inner.into_inner().next() {
+                        let str_val = str_inner.as_str();
+                        let label = format!("str_{}", *unique_id);
+                        *unique_id += 1;
+                        data_section.push_str(&format!("{}: db \"{}\", 0\n", label, str_val));
+                        text_section.push_str(&format!("    lea rax, [rel {}]\n", label));
+                    } else {
+                        // Empty string literal
+                        let label = format!("str_{}", *unique_id);
+                        *unique_id += 1;
+                        data_section.push_str(&format!("{}: db \"\", 0\n", label));
+                        text_section.push_str(&format!("    lea rax, [rel {}]\n", label));
+                    }
+                }
+                _ => {}
+            }
+        }
+        Rule::postfix => {
+            // Handle more complex postfix expressions like array access or function calls
+            let mut postfix_inner = first.into_inner();
+            let primary_or_unary = match postfix_inner.next() {
+                Some(p) => p,
+                None => {
+                    text_section.push_str("    ; ERROR: Malformed postfix expression\n");
+                    return Ok(());
+                }
+            };
+
+            // First, compile the base part of the expression
+            compile_expr(
+                primary_or_unary,
+                symbols,
+                var_offsets,
+                text_section,
+                unique_id,
+                data_section,
+            )?;
+
+            // Now, handle operators if any
+            if let Some(op) = postfix_inner.next() {
+                if let Some(rhs) = postfix_inner.next() {
+                    text_section.push_str("    push rax\n"); // Save LHS result
+                    compile_expr(
+                        rhs,
+                        symbols,
+                        var_offsets,
+                        text_section,
+                        unique_id,
+                        data_section,
+                    )?;
+                    text_section.push_str("    pop rbx\n"); // Restore LHS to rbx
+
+                    match op.as_str() {
+                        "+" => text_section.push_str("    add rax, rbx\n"),
+                        "-" => {
+                            text_section.push_str("    sub rbx, rax\n");
+                            text_section.push_str("    mov rax, rbx\n");
+                        }
+                        "*" => text_section.push_str("    imul rax, rbx\n"),
+                        "/" => {
+                            text_section.push_str("    mov rdx, 0\n");
+                            text_section.push_str("    mov rcx, rax\n");
+                            text_section.push_str("    mov rax, rbx\n");
+                            text_section.push_str("    idiv rcx\n");
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        _ => {
+            // Fallback for simple expressions
+            if let Ok(val) = eval_expr(first.clone(), &symbols.variables) {
+                match val {
+                    FluxValue::Int(n) => text_section.push_str(&format!("    mov rax, {}\n", n)),
+                    _ => {}
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn compile_block(
     block: pest::iterators::Pair<Rule>,
     content: &str,
@@ -757,15 +638,30 @@ fn compile_block_with_loop_context(
         match statement.as_rule() {
             Rule::variable_decl => {
                 let mut decl_inner = statement.into_inner();
-                let var_type = decl_inner.next().unwrap().as_str().to_string();
-                let var_name = decl_inner.next().unwrap().as_str().to_string();
+                let type_pair = decl_inner.next().unwrap();
+                let var_name_pair = decl_inner.next().unwrap();
+                let var_type_str = type_pair.as_str();
+                let var_name = var_name_pair.as_str().to_string();
 
-                // Track the type of this variable (for class instances)
-                symbols.variable_types.insert(var_name.clone(), var_type.clone());
-
-                *stack_offset += 8;
-                var_offsets.insert(var_name.clone(), *stack_offset);
-                text_section.push_str(&format!("    sub rsp, 8\n"));
+                // Handle array declaration: int[10] arr;
+                if var_type_str.contains('[') && var_type_str.contains(']') {
+                    if let Some(bracket_pos) = var_type_str.find('[') {
+                        let size_str = &var_type_str[bracket_pos + 1..var_type_str.find(']').unwrap()];
+                        if let Ok(size) = size_str.parse::<i32>() {
+                            let total_size = size * 8; // 8 bytes per element (qword)
+                            text_section.push_str(&format!("    sub rsp, {}\n", total_size));
+                            *stack_offset += total_size;
+                            var_offsets.insert(var_name.clone(), *stack_offset);
+                            symbols.variable_types.insert(var_name.clone(), var_type_str.to_string());
+                        }
+                    }
+                } else {
+                    // Regular variable declaration
+                    symbols.variable_types.insert(var_name.clone(), var_type_str.to_string());
+                    *stack_offset += 8;
+                    var_offsets.insert(var_name.clone(), *stack_offset);
+                    text_section.push_str("    sub rsp, 8\n");
+                }
 
                 if let Some(expr_pair) = decl_inner.find(|p| p.as_rule() == Rule::expr) {
                     let expr_str = expr_pair.as_str().trim();
@@ -776,7 +672,7 @@ fn compile_block_with_loop_context(
                         if let Ok(val) = eval_expr(expr_pair.clone(), &symbols.variables) {
                             // Successfully evaluated at compile-time (math functions)
                             match &val {
-                                FluxValue::Integer(n) => {
+                                FluxValue::Int(n) => {
                                     text_section.push_str(&format!(
                                         "    mov qword [rbp-{}], {}\n",
                                         *stack_offset, n
@@ -789,16 +685,6 @@ fn compile_block_with_loop_context(
                                     data_section.push_str(&format!("{}: dd 0x{:x}\n", label, float_bits));
                                     text_section.push_str(&format!(
                                         "    mov eax, [rel {}]\n    mov dword [rbp-{}], eax\n",
-                                        label, *stack_offset
-                                    ));
-                                }
-                                FluxValue::Double(d) => {
-                                    let label = format!("double_{}", *unique_id);
-                                    *unique_id += 1;
-                                    let double_bits = d.to_bits();
-                                    data_section.push_str(&format!("{}: dq 0x{:x}\n", label, double_bits));
-                                    text_section.push_str(&format!(
-                                        "    mov rax, [rel {}]\n    mov qword [rbp-{}], rax\n",
                                         label, *stack_offset
                                     ));
                                 }
@@ -945,7 +831,7 @@ fn compile_block_with_loop_context(
                         match eval_expr(expr_pair, &symbols.variables) {
                             Ok(val) => {
                                 match &val {
-                                    FluxValue::Integer(n) => {
+                                    FluxValue::Int(n) => {
                                         text_section.push_str(&format!(
                                             "    mov qword [rbp-{}], {}\n",
                                             *stack_offset, n
@@ -958,16 +844,6 @@ fn compile_block_with_loop_context(
                                         data_section.push_str(&format!("{}: dd 0x{:x}\n", label, float_bits));
                                         text_section.push_str(&format!(
                                             "    mov eax, [rel {}]\n    mov dword [rbp-{}], eax\n",
-                                            label, *stack_offset
-                                        ));
-                                    }
-                                    FluxValue::Double(d) => {
-                                        let label = format!("double_{}", *unique_id);
-                                        *unique_id += 1;
-                                        let double_bits = d.to_bits();
-                                        data_section.push_str(&format!("{}: dq 0x{:x}\n", label, double_bits));
-                                        text_section.push_str(&format!(
-                                            "    mov rax, [rel {}]\n    mov qword [rbp-{}], rax\n",
                                             label, *stack_offset
                                         ));
                                     }
@@ -999,94 +875,119 @@ fn compile_block_with_loop_context(
             }
 
             Rule::function_call => {
+                let stmt_text = statement.as_str().to_string(); // capture raw source
                 let mut call_inner = statement.into_inner();
-                let first_ident = call_inner.next().unwrap().as_str();
-                
-                // Check if this is a method call (obj.method()) or function call (func())
-                let mut method_name = None;
-                let mut object_name = None;
-                
-                // Look for another identifier (method name in obj.method() syntax)
-                let call_inner_clone: Vec<_> = call_inner.clone().collect();
-                if !call_inner_clone.is_empty() && call_inner_clone[0].as_rule() == Rule::ident {
-                    // This is a method call: obj.method()
-                    object_name = Some(first_ident.to_string());
-                    method_name = Some(call_inner.next().unwrap().as_str().to_string());
+
+                let first_ident_pair = match call_inner.next() {
+                    Some(p) => p,
+                    None => {
+                        text_section.push_str("    ; ERROR: Malformed function call statement\n");
+                        return Ok(());
+                    }
+                };
+                let first_ident = first_ident_pair.as_str().to_string();
+
+                // Determine if this is obj.method(...) by checking raw source
+                let is_method_call = stmt_text.starts_with(&(first_ident.clone() + "."));
+
+                let mut object_name: Option<String> = None;
+                let mut method_name: Option<String> = None;
+
+                if is_method_call {
+                    // Next token should be the method name ident
+                    match call_inner.next() {
+                        Some(p) if p.as_rule() == Rule::ident => {
+                            object_name = Some(first_ident.clone());
+                            method_name = Some(p.as_str().to_string());
+                        }
+                        _ => {
+                            // Malformed method call — fall through as regular call
+                        }
+                    }
                 }
-                
-                let callee = method_name.as_deref().unwrap_or(first_ident);
+
+                let callee = method_name.as_deref().unwrap_or(&first_ident);
                 
                 // Handle built-in functions
                 if callee == "serial_print" || callee == "print" {
                     if let Some(arg_pair) = call_inner.next() {
-                        match eval_expr(arg_pair.clone(), &symbols.variables) {
-                            Ok(val) => match val {
-                                FluxValue::Str(text) => {
-                                    let label = format!("str_{}", *unique_id);
-                                    *unique_id += 1;
-                                    let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
-                                    data_section.push_str(&format!("{}: db \"{}\", 0\n", label, escaped));
-                                    text_section.push_str(&format!(
-                                        "    lea rdi, [rel {}]\n    call _fsh_print_str\n",
-                                        label
-                                    ));
-                                }
-                                FluxValue::Integer(n) => {
-                                    text_section.push_str(&format!(
-                                        "    mov rdi, {}\n    call _fsh_print_int\n",
-                                        n
-                                    ));
-                                }
-                                FluxValue::Float(f) => {
-                                    // Generate a string literal with the float value
-                                    let label = format!("float_{}", *unique_id);
-                                    *unique_id += 1;
-                                    let formatted = format!("{}", f);
-                                    data_section.push_str(&format!("{}: db \"{}\", 0\n", label, formatted));
-                                    text_section.push_str(&format!(
-                                        "    lea rdi, [rel {}]\n    call _fsh_print_str\n",
-                                        label
-                                    ));
-                                }
-                                FluxValue::Double(d) => {
-                                    // Generate a string literal with the double value
-                                    let label = format!("double_{}", *unique_id);
-                                    *unique_id += 1;
-                                    let formatted = format!("{}", d);
-                                    data_section.push_str(&format!("{}: db \"{}\", 0\n", label, formatted));
-                                    text_section.push_str(&format!(
-                                        "    lea rdi, [rel {}]\n    call _fsh_print_str\n",
-                                        label
-                                    ));
-                                }
-                            },
-                            Err(_e) => {
-                                // Try to handle as variable reference if static evaluation fails
-                                let arg_str = arg_pair.as_str().trim();
-                                
-                                // Check if it's a simple identifier (no operators, no function calls)
-                                if !arg_str.contains(" ") && !arg_str.contains("(") && !arg_str.contains("[") 
-                                    && !arg_str.contains("+") && !arg_str.contains("-") && !arg_str.contains("*") && !arg_str.contains("/") {
-                                    // It's likely a simple variable name
-                                    if let Some(&offset) = var_offsets.get(arg_str) {
-                                        // Load variable from stack and print it as integer
+                        // First, check if this is a direct string literal
+                        let arg_str = arg_pair.as_str();
+                        if arg_str.starts_with('"') && arg_str.ends_with('"') {
+                            // Direct string literal
+                            let str_content = &arg_str[1..arg_str.len()-1];
+                            let label = format!("str_{}", *unique_id);
+                            *unique_id += 1;
+                            let escaped = str_content.replace("\\", "\\\\").replace("\"", "\\\"");
+                            data_section.push_str(&format!("{}: db \"{}\", 0\n", label, escaped));
+                            text_section.push_str(&format!(
+                                "    lea rdi, [rel {}]\n    call _fsh_print_str\n",
+                                label
+                            ));
+                        } else {
+                            // Try to evaluate as expression
+                            match eval_expr(arg_pair.clone(), &symbols.variables) {
+                                Ok(val) => match val {
+                                    FluxValue::Str(text) => {
+                                        let label = format!("str_{}", *unique_id);
+                                        *unique_id += 1;
+                                        let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
+                                        data_section.push_str(&format!("{}: db \"{}\", 0\n", label, escaped));
                                         text_section.push_str(&format!(
-                                            "    mov rdi, [rbp-{}]\n    call _fsh_print_int\n",
-                                            offset
+                                            "    lea rdi, [rel {}]\n    call _fsh_print_str\n",
+                                            label
                                         ));
-                                    } else {
-                                        // Better error message with the actual variable name
-                                        eprintln!("⚠️  WARNING: Undefined variable '{}' used in function call '{}'", arg_str, callee);
-                                        text_section.push_str(&format!("    ; ❌ ERROR: Undefined variable '{}' in call to {}\n", arg_str, callee));
                                     }
-                                } else {
-                                    eprintln!("⚠️  WARNING: Complex expression not fully supported in function arguments for '{}'", callee);
-                                    text_section.push_str(&format!("    ; ❌ ERROR: Complex expression not supported in argument for {}\n", callee));
+                                    FluxValue::Int(n) => {
+                                        text_section.push_str(&format!(
+                                            "    mov rdi, {}\n    call _fsh_print_int\n",
+                                            n
+                                        ));
+                                    }
+                                    FluxValue::Float(f) => {
+                                        // Generate a string literal with the float value
+                                        let label = format!("float_{}", *unique_id);
+                                        *unique_id += 1;
+                                        let formatted = format!("{}", f);
+                                        data_section.push_str(&format!("{}: db \"{}\", 0\n", label, formatted));
+                                        text_section.push_str(&format!(
+                                            "    lea rdi, [rel {}]\n    call _fsh_print_str\n",
+                                            label
+                                        ));
+                                    }
+                                },
+                                Err(_e) => {
+                                    // Expression is complex, compile it
+                                    let mut temp_text_section = String::new();
+                                    if compile_expr(
+                                        arg_pair,
+                                        symbols,
+                                        var_offsets,
+                                        &mut temp_text_section,
+                                        unique_id,
+                                        data_section,
+                                    )
+                                    .is_ok()
+                                    {
+                                        text_section.push_str(&temp_text_section);
+                                        text_section.push_str("    mov rdi, rax\n");
+                                        text_section.push_str("    call _fsh_print_int\n");
+                                    } else {
+                                        eprintln!("⚠️  WARNING: Complex expression not fully supported in function arguments for '{}'", callee);
+                                        text_section.push_str(&format!("    ; ❌ ERROR: Complex expression not supported in argument for {}\n", callee));
+                                    }
                                 }
                             }
                         }
                     } else {
-                        text_section.push_str(&format!("    ; ⚠️  WARNING: Function '{}' called without required arguments\n", callee));
+                        // Handle print() without arguments - just print a newline
+                        let label = format!("str_{}", *unique_id);
+                        *unique_id += 1;
+                        data_section.push_str(&format!("{}: db \"\", 10, 0\n", label)); // Newline
+                        text_section.push_str(&format!(
+                            "    lea rdi, [rel {}]\n    call _fsh_print_str\n",
+                            label
+                        ));
                     }
                 } else if let Some(obj) = object_name {
                     // Method call on object - generate a call to the method
@@ -1107,7 +1008,7 @@ fn compile_block_with_loop_context(
                             arg_idx += 1;
                             
                             match val {
-                                FluxValue::Integer(n) => {
+                                FluxValue::Int(n) => {
                                     args_code.push_str(&format!("    mov {}, {}\n", reg, n));
                                 }
                                 FluxValue::Str(text) => {
@@ -1133,8 +1034,138 @@ fn compile_block_with_loop_context(
 
             Rule::assignment_stmt => {
                 let mut assign_inner = statement.into_inner();
-                let first_ident = assign_inner.next().unwrap().as_str().to_string();
-                
+                let var_name_part = assign_inner.next().unwrap();
+
+                // Check for array assignment: arr[0] = 42;
+                if var_name_part.as_rule() == Rule::array_access {
+                    let mut array_access_inner = var_name_part.into_inner();
+                    let array_name = array_access_inner.next().unwrap().as_str();
+                    let index_expr_pair = array_access_inner.next().unwrap();
+                    let index_str = index_expr_pair.as_str();
+
+                    let _assign_op = assign_inner.next().unwrap().as_str();
+                    let expr_pair = assign_inner.next().unwrap();
+
+                    // Handle index being a variable or a literal
+                    let index_asm = if let Ok(index_val) = index_str.parse::<i32>() {
+                        format!("    mov rbx, {}\n", index_val)
+                    } else if let Some(&offset) = var_offsets.get(index_str) {
+                        format!("    mov rbx, [rbp-{}]\n", offset)
+                    } else {
+                        // Attempt to compile the index expression
+                        let mut temp_text_section = String::new();
+                        compile_expr(
+                            index_expr_pair,
+                            symbols,
+                            var_offsets,
+                            &mut temp_text_section,
+                            unique_id,
+                            data_section,
+                        )?;
+                        temp_text_section.push_str("    mov rbx, rax\n");
+                        temp_text_section
+                    };
+
+                    if let (Some(&offset), Ok(val)) = (
+                        var_offsets.get(array_name),
+                        eval_expr(expr_pair.clone(), &symbols.variables),
+                    ) {
+                        if let FluxValue::Int(n) = val {
+                            let size = symbols
+                                .variable_types
+                                .get(array_name)
+                                .and_then(|type_str: &String| {
+                                    if let Some(start) = type_str.find('[') {
+                                        if let Some(end) = type_str.find(']') {
+                                            type_str[start + 1..end].parse::<i32>().ok()
+                                        } else {
+                                            None
+                                        }
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .unwrap_or(0);
+
+                            // Bounds check
+                            text_section.push_str(&format!(
+                                "    ; Bounds check for {}[{}]\n",
+                                array_name, index_str
+                            ));
+                            text_section.push_str(&index_asm);
+                            text_section.push_str("    cmp rbx, 0\n");
+                            text_section.push_str("    jl _fsh_panic_bounds\n");
+                            text_section.push_str(&format!("    cmp rbx, {}\n", size));
+                            text_section.push_str("    jge _fsh_panic_bounds\n");
+
+                            // Calculate address
+                            text_section.push_str("    ; Calculate address\n");
+                            text_section.push_str("    mov rax, rbp\n");
+                            text_section.push_str(&format!("    sub rax, {}\n", offset));
+                            text_section.push_str("    mov rdx, rbx\n");
+                            text_section.push_str("    imul rdx, 8\n");
+                            text_section.push_str("    sub rax, rdx\n"); // Corrected from add to sub
+                            text_section.push_str(&format!("    mov qword [rax], {}\n", n));
+                        }
+                    } else {
+                        // Fallback for dynamic value assignment
+                        let mut temp_text_section = String::new();
+                        compile_expr(
+                            expr_pair,
+                            symbols,
+                            var_offsets,
+                            &mut temp_text_section,
+                            unique_id,
+                            data_section,
+                        )?;
+                        text_section.push_str(&temp_text_section);
+
+                        let size = symbols
+                            .variable_types
+                            .get(array_name)
+                            .and_then(|type_str: &String| {
+                                if let Some(start) = type_str.find('[') {
+                                    if let Some(end) = type_str.find(']') {
+                                        type_str[start + 1..end].parse::<i32>().ok()
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or(0);
+
+                        // Bounds check
+                        text_section.push_str(&format!(
+                            "    ; Bounds check for {}[{}]\n",
+                            array_name, index_str
+                        ));
+                        text_section.push_str(&index_asm);
+                        text_section.push_str("    cmp rbx, 0\n");
+                        text_section.push_str("    jl _fsh_panic_bounds\n");
+                        text_section.push_str(&format!("    cmp rbx, {}\n", size));
+                        text_section.push_str("    jge _fsh_panic_bounds\n");
+
+                        // Calculate address and assign
+                        text_section.push_str("    ; Calculate address for assignment\n");
+                        text_section.push_str("    push rax\n"); // Save value from RHS
+                        text_section.push_str("    mov rax, rbp\n");
+                        if let Some(&offset) = var_offsets.get(array_name) {
+                            text_section.push_str(&format!("    sub rax, {}\n", offset));
+                        }
+                        text_section.push_str("    mov rdx, rbx\n");
+                        text_section.push_str("    imul rdx, 8\n");
+                        text_section.push_str("    sub rax, rdx\n");
+                        text_section.push_str("    pop rbx\n"); // Restore value
+                        text_section.push_str("    mov [rax], rbx\n");
+                    }
+                    return Ok(());
+                }
+
+                // If not array assignment, proceed with normal variable/property assignment
+                let first_ident = var_name_part.as_str().to_string();
+
                 // Check if this is a property assignment (obj.property = value) or variable assignment (var = value)
                 let mut property_name = None;
                 let mut object_name = None;
@@ -1160,23 +1191,13 @@ fn compile_block_with_loop_context(
                     } else if let Some(&offset) = var_offsets.get(&var_name) {
                         // Regular variable assignment
                         match val {
-                            FluxValue::Integer(n) => {
+                            FluxValue::Int(n) => {
                                 text_section.push_str(&format!(
                                     "    mov qword [rbp-{}], {}\n",
                                     offset, n
                                 ));
                             }
-                            FluxValue::Float(f) => {
-                                let label = format!("float_{}", *unique_id);
-                                *unique_id += 1;
-                                let float_bits = f.to_bits();
-                                data_section.push_str(&format!("{}: dd 0x{:x}\n", label, float_bits));
-                                text_section.push_str(&format!(
-                                    "    mov eax, [rel {}]\n    mov dword [rbp-{}], eax\n",
-                                    label, offset
-                                ));
-                            }
-                            FluxValue::Double(d) => {
+                            FluxValue::Float(d) => {
                                 let label = format!("double_{}", *unique_id);
                                 *unique_id += 1;
                                 let double_bits = d.to_bits();
@@ -1215,42 +1236,20 @@ fn compile_block_with_loop_context(
             }
 
             Rule::if_stmt => {
-                let mut if_inner = statement.into_inner();
-                let condition_pair = if_inner.next().unwrap();
-                let then_block     = if_inner.next().unwrap();
-                let else_part      = if_inner.next();
-
-                let label_id = *unique_id;
-                *unique_id += 1;
-                let label_false = format!(".if_false_{}", label_id);
-                let label_end   = format!(".if_end_{}", label_id);
-
-                compile_condition(condition_pair, &label_false, text_section, symbols, &var_offsets)?;
-                compile_block_with_loop_context(
-                    then_block, content, source_lines, symbols, data_section, text_section, unique_id,
-                    var_offsets, stack_offset, false, loop_start.clone(), loop_end.clone()
+                dbg!(&statement);
+                compile_block_from_if(
+                    statement,
+                    content,
+                    source_lines,
+                    symbols,
+                    data_section,
+                    text_section,
+                    unique_id,
+                    var_offsets,
+                    stack_offset,
+                    loop_start.clone(),
+                    loop_end.clone(),
                 )?;
-                text_section.push_str(&format!("    jmp {}\n", label_end));
-                text_section.push_str(&format!("{}:\n", label_false));
-
-                if let Some(else_pair) = else_part {
-                    let mut else_inner = else_pair.into_inner();
-                    if let Some(else_block) = else_inner.next() {
-                        match else_block.as_rule() {
-                            Rule::block => {
-                                compile_block_with_loop_context(
-                                    else_block, content, source_lines, symbols, data_section, text_section, unique_id,
-                                    var_offsets, stack_offset, false, loop_start.clone(), loop_end.clone()
-                                )?;
-                            }
-                            Rule::if_stmt => {
-                                compile_block_from_if(else_block, content, source_lines, symbols, data_section, text_section, unique_id, var_offsets, stack_offset, loop_start.clone(), loop_end.clone())?;
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                text_section.push_str(&format!("{}:\n", label_end));
             }
 
             Rule::for_loop => {
@@ -1279,7 +1278,7 @@ fn compile_block_with_loop_context(
 
                 if let Some(expr_pair) = init_expr {
                     if let Ok(val) = eval_expr(expr_pair, &symbols.variables) {
-                        if let FluxValue::Integer(n) = val {
+                        if let FluxValue::Int(n) = val {
                             text_section.push_str(&format!("    mov rax, {}\n", n));
                             text_section.push_str(&format!("    mov qword [rbp-{}], rax\n", *stack_offset));
                         }
@@ -1400,7 +1399,8 @@ fn compile_block_with_loop_context(
                                                 text_section.push_str("    add rax, rcx\n");
                                             }
                                             "-" => {
-                                                text_section.push_str("    sub rax, rcx\n");
+                                                text_section.push_str("    sub rbx, rax\n");
+                                                text_section.push_str("    mov rax, rbx\n");
                                             }
                                             "*" => {
                                                 text_section.push_str("    imul rax, rcx\n");
@@ -1422,7 +1422,7 @@ fn compile_block_with_loop_context(
                     // Try to evaluate at compile-time
                     if let Ok(val) = eval_expr(expr_pair.clone(), &symbols.variables) {
                         match val {
-                            FluxValue::Integer(n) => {
+                            FluxValue::Int(n) => {
                                 text_section.push_str(&format!("    mov rax, {}\n", n));
                             }
                             FluxValue::Float(f) => {
@@ -1431,13 +1431,6 @@ fn compile_block_with_loop_context(
                                 let float_bits = f.to_bits();
                                 data_section.push_str(&format!("{}: dd 0x{:x}\n", label, float_bits));
                                 text_section.push_str(&format!("    movd xmm0, [rel {}]\n", label));
-                            }
-                            FluxValue::Double(d) => {
-                                let label = format!("double_{}", *unique_id);
-                                *unique_id += 1;
-                                let double_bits = d.to_bits();
-                                data_section.push_str(&format!("{}: dq 0x{:x}\n", label, double_bits));
-                                text_section.push_str(&format!("    movsd xmm0, [rel {}]\n", label));
                             }
                             FluxValue::Str(text) => {
                                 let label = format!("str_{}", *unique_id);
@@ -1460,7 +1453,7 @@ fn compile_block_with_loop_context(
                     }
                 }
                 // Add epilogue
-                text_section.push_str("    mov rsp, rbp\n    pop rbp\n    ret\n");
+                text_section.push_str("    mov rsp, rbp\n    pop rbp\n    ret\n\n");
             }
 
             _ => {}
@@ -1471,525 +1464,6 @@ fn compile_block_with_loop_context(
         text_section.push_str("\n    mov rsp, rbp\n    pop rbp\n    ret\n\n");
     }
     Ok(())
-}
-
-// --- 2. SYSTÈME DE TYPES ---
-#[derive(Debug, Clone, PartialEq)]
-pub enum FluxType {
-    Int, UInt, Long, ULong, Byte, String, Bool, Void, Float, Double,
-    Pointer(Box<FluxType>),
-    Struct(String),
-}
-
-impl FluxType {
-    fn from_str(s: &str) -> Self {
-        match s {
-            "int" => FluxType::Int,
-            "uint" => FluxType::UInt,
-            "long" => FluxType::Long,
-            "ulong" => FluxType::ULong,
-            "byte" => FluxType::Byte,
-            "string" => FluxType::String,
-            "bool" => FluxType::Bool,
-            "void" => FluxType::Void,
-            "float" => FluxType::Float,
-            "double" => FluxType::Double,
-            _ => FluxType::Struct(s.to_string()),
-        }
-    }
-}
-
-// --- 3. RUNTIME VALUES ---
-#[derive(Debug, Clone)]
-pub enum FluxValue {
-    Integer(i64),
-    Float(f32),
-    Double(f64),
-    Str(String),
-}
-
-impl std::fmt::Display for FluxValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            FluxValue::Integer(n) => write!(f, "{}", n),
-            FluxValue::Float(n) => write!(f, "{}", n),
-            FluxValue::Double(n) => write!(f, "{}", n),
-            FluxValue::Str(s) => write!(f, "{}", s),
-        }
-    }
-}
-
-// --- 4. GESTION DES SYMBOLES ---
-#[derive(Debug, Clone)]
-pub struct FunctionSignature {
-    pub return_type: FluxType,
-    pub parameters: Vec<(String, FluxType)>,
-}
-
-#[allow(dead_code)]
-struct SymbolTable {
-    variables: HashMap<String, FluxValue>,
-    structs: HashMap<String, Vec<(String, FluxType)>>,
-    functions: HashMap<String, FunctionSignature>,
-    variable_types: HashMap<String, String>,  // Track type of each variable (e.g., "calc" -> "Calculator")
-}
-
-// --- 5. EXPRESSION EVALUATOR ---
-fn eval_expr(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue>) -> Result<FluxValue> {
-    let mut inner = pair.into_inner();
-    let first = inner.next().ok_or_else(|| anyhow::anyhow!("Empty expression"))?;
-    let mut result = eval_postfix(first, vars)?;
-    
-    let mut operator_count = 0;
-
-    while let Some(op_pair) = inner.next() {
-        // Security: Prevent long operator chains
-        operator_count += 1;
-        if operator_count > MAX_OPERATOR_CHAIN {
-            bail!(
-                "Expression has too many operators: {} > {} limit",
-                operator_count,
-                MAX_OPERATOR_CHAIN
-            );
-        }
-        
-        let op = op_pair.as_str();
-        let next_postfix = inner.next().ok_or_else(|| anyhow::anyhow!("Missing operand after '{}'", op))?;
-        let right = eval_postfix(next_postfix, vars)?;
-
-        result = match (&result, &right) {
-            (FluxValue::Integer(l), FluxValue::Integer(r)) => {
-                FluxValue::Integer(match op {
-                    "+" => l + r,
-                    "-" => l - r,
-                    "*" => l * r,
-                    "/" => {
-                        if *r == 0 { anyhow::bail!("Division by zero"); }
-                        l / r
-                    },
-                    "%" => {
-                        if *r == 0 { anyhow::bail!("Modulo by zero"); }
-                        l % r
-                    },
-                    "&" => l & r,
-                    "|" => l | r,
-                    "^" => l ^ r,
-                    "<<" => l << r,
-                    ">>" => l >> r,
-                    _ => anyhow::bail!("Unknown operator: {}", op),
-                })
-            }
-            (FluxValue::Float(l), FluxValue::Float(r)) => {
-                FluxValue::Float(match op {
-                    "+" => l + r,
-                    "-" => l - r,
-                    "*" => l * r,
-                    "/" => {
-                        if *r == 0.0 { anyhow::bail!("Division by zero"); }
-                        l / r
-                    },
-                    "%" => {
-                        if *r == 0.0 { anyhow::bail!("Modulo by zero"); }
-                        l % r
-                    },
-                    _ => anyhow::bail!("Unknown operator: {}", op),
-                })
-            }
-            (FluxValue::Double(l), FluxValue::Double(r)) => {
-                FluxValue::Double(match op {
-                    "+" => l + r,
-                    "-" => l - r,
-                    "*" => l * r,
-                    "/" => {
-                        if *r == 0.0 { anyhow::bail!("Division by zero"); }
-                        l / r
-                    },
-                    "%" => {
-                        if *r == 0.0 { anyhow::bail!("Modulo by zero"); }
-                        l % r
-                    },
-                    _ => anyhow::bail!("Unknown operator: {}", op),
-                })
-            }
-            (FluxValue::Integer(l), FluxValue::Float(r)) => {
-                FluxValue::Float(match op {
-                    "+" => *l as f32 + r,
-                    "-" => *l as f32 - r,
-                    "*" => *l as f32 * r,
-                    "/" => {
-                        if *r == 0.0 { anyhow::bail!("Division by zero"); }
-                        *l as f32 / r
-                    },
-                    "%" => {
-                        if *r == 0.0 { anyhow::bail!("Modulo by zero"); }
-                        (*l as f32) % r
-                    },
-                    _ => anyhow::bail!("Unknown operator: {}", op),
-                })
-            }
-            (FluxValue::Float(l), FluxValue::Integer(r)) => {
-                FluxValue::Float(match op {
-                    "+" => l + *r as f32,
-                    "-" => l - *r as f32,
-                    "*" => l * *r as f32,
-                    "/" => {
-                        if *r == 0 { anyhow::bail!("Division by zero"); }
-                        l / *r as f32
-                    },
-                    "%" => {
-                        if *r == 0 { anyhow::bail!("Modulo by zero"); }
-                        l % (*r as f32)
-                    },
-                    _ => anyhow::bail!("Unknown operator: {}", op),
-                })
-            }
-            (FluxValue::Integer(l), FluxValue::Double(r)) => {
-                FluxValue::Double(match op {
-                    "+" => *l as f64 + r,
-                    "-" => *l as f64 - r,
-                    "*" => *l as f64 * r,
-                    "/" => {
-                        if *r == 0.0 { anyhow::bail!("Division by zero"); }
-                        *l as f64 / r
-                    },
-                    "%" => {
-                        if *r == 0.0 { anyhow::bail!("Modulo by zero"); }
-                        (*l as f64) % r
-                    },
-                    _ => anyhow::bail!("Unknown operator: {}", op),
-                })
-            }
-            (FluxValue::Double(l), FluxValue::Integer(r)) => {
-                FluxValue::Double(match op {
-                    "+" => l + *r as f64,
-                    "-" => l - *r as f64,
-                    "*" => l * *r as f64,
-                    "/" => {
-                        if *r == 0 { anyhow::bail!("Division by zero"); }
-                        l / *r as f64
-                    },
-                    "%" => {
-                        if *r == 0 { anyhow::bail!("Modulo by zero"); }
-                        l % (*r as f64)
-                    },
-                    _ => anyhow::bail!("Unknown operator: {}", op),
-                })
-            }
-            (FluxValue::Float(l), FluxValue::Double(r)) => {
-                FluxValue::Double(match op {
-                    "+" => *l as f64 + r,
-                    "-" => *l as f64 - r,
-                    "*" => *l as f64 * r,
-                    "/" => {
-                        if *r == 0.0 { anyhow::bail!("Division by zero"); }
-                        *l as f64 / r
-                    },
-                    "%" => {
-                        if *r == 0.0 { anyhow::bail!("Modulo by zero"); }
-                        (*l as f64) % r
-                    },
-                    _ => anyhow::bail!("Unknown operator: {}", op),
-                })
-            }
-            (FluxValue::Double(l), FluxValue::Float(r)) => {
-                FluxValue::Double(match op {
-                    "+" => l + *r as f64,
-                    "-" => l - *r as f64,
-                    "*" => l * *r as f64,
-                    "/" => {
-                        if *r == 0.0 { anyhow::bail!("Division by zero"); }
-                        l / *r as f64
-                    },
-                    "%" => {
-                        if *r == 0.0 { anyhow::bail!("⚠️  Division by zero error in arithmetic operation"); }
-                        l % (*r as f64)
-                    },
-                    _ => anyhow::bail!("Unknown operator '{}' in arithmetic expression", op),
-                })
-            }
-            (FluxValue::Str(l), FluxValue::Str(r)) => {
-                if op == "+" {
-                    FluxValue::Str(format!("{}{}", l, r))
-                } else {
-                    anyhow::bail!("❌ Unsupported operator '{}' on strings. Only concatenation (+) is supported.", op)
-                }
-            }
-            (FluxValue::Str(l), FluxValue::Integer(r)) => {
-                if op == "+" {
-                    FluxValue::Str(format!("{}{}", l, r))
-                } else {
-                    anyhow::bail!("❌ Invalid operation '{}' between string and integer.\n   Hint: Use string concatenation (+) to combine types.", op)
-                }
-            }
-            (FluxValue::Integer(l), FluxValue::Str(r)) => {
-                if op == "+" {
-                    FluxValue::Str(format!("{}{}", l, r))
-                } else {
-                    anyhow::bail!("❌ Invalid operation '{}' between integer and string.\n   Hint: Use string concatenation (+) to combine types.", op)
-                }
-            }
-            _ => anyhow::bail!("❌ Type error: Cannot perform arithmetic on incompatible types.\n   Check that both operands are numeric (int, float, double) for arithmetic operations."),
-        };
-    }
-
-    Ok(result)
-}
-
-fn eval_unary(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue>) -> Result<FluxValue> {
-    // unary = { unary_op? ~ primary ~ ... }
-    let mut inner = pair.into_inner();
-    
-    // Check if there's a unary operator
-    let mut unary_op = None;
-    let mut first = inner.next().ok_or_else(|| anyhow::anyhow!("Empty unary"))?;
-    
-    // If first element is unary_op, parse it
-    if first.as_rule() == Rule::unary_op {
-        unary_op = Some(first.as_str().to_string());
-        first = inner.next().ok_or_else(|| anyhow::anyhow!("Missing operand after unary operator"))?;
-    }
-    
-    let mut value = eval_primary(first, vars)?;
-    
-    // Apply unary operator if present
-    if let Some(op) = unary_op {
-        value = match op.as_str() {
-            "-" => {
-                match value {
-                    FluxValue::Integer(n) => FluxValue::Integer(-n),
-                    FluxValue::Float(f) => FluxValue::Float(-f),
-                    FluxValue::Double(d) => FluxValue::Double(-d),
-                    _ => bail!("Cannot apply unary minus to non-numeric type"),
-                }
-            }
-            "+" => value, // Unary plus does nothing
-            "!" => {
-                // Logical NOT
-                match value {
-                    FluxValue::Integer(n) => FluxValue::Integer(if n == 0 { 1 } else { 0 }),
-                    _ => bail!("Cannot apply logical NOT to non-integer"),
-                }
-            }
-            _ => bail!("Unknown unary operator: {}", op),
-        };
-    }
-    
-    Ok(value)
-}
-
-fn eval_postfix(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue>) -> Result<FluxValue> {
-    // postfix = { unary ~ ("(" ~ (expr ~ ("," ~ expr)*)? ~ ")" | "[" ~ expr ~ "]" | "." ~ ident)* }
-    let mut inner = pair.into_inner();
-    let unary = inner.next().ok_or_else(|| anyhow::anyhow!("Empty postfix"))?;
-    let mut base = eval_unary(unary, vars)?;
-
-    // Process postfix operators (function calls, array access, member access)
-    while let Some(suffix) = inner.next() {
-        match suffix.as_rule() {
-            // For now, just skip non-expr suffixes
-            // Function calls will be parsed differently
-            _ => {}
-        }
-    }
-    
-    Ok(base)
-}
-
-fn eval_primary(pair: pest::iterators::Pair<Rule>, vars: &HashMap<String, FluxValue>) -> Result<FluxValue> {
-    // primary = { bool_literal | float_literal | double_literal | int_literal
-    //           | string_literal | char_literal | "(" ~ expr ~ ")" | ident }
-    let inner = pair.into_inner().next()
-        .ok_or_else(|| anyhow::anyhow!("Empty primary"))?;
-
-    match inner.as_rule() {
-        Rule::bool_literal => {
-            match inner.as_str() {
-                "true"  => Ok(FluxValue::Integer(1)),
-                "false" => Ok(FluxValue::Integer(0)),
-                _       => bail!("Invalid bool literal"),
-            }
-        }
-        Rule::float_literal => {
-            let raw = inner.as_str();
-            let n: f32 = raw[..raw.len()-1].parse()
-                .with_context(|| format!("Invalid float: {}", raw))?;
-            Ok(FluxValue::Float(n))
-        }
-        Rule::double_literal => {
-            let n: f64 = inner.as_str().parse()
-                .with_context(|| format!("Invalid double: {}", inner.as_str()))?;
-            Ok(FluxValue::Double(n))
-        }
-        Rule::int_literal => {
-            let raw = inner.as_str();
-            let n: i64 = if raw.starts_with("0x") || raw.starts_with("0X") {
-                i64::from_str_radix(&raw[2..], 16)?
-            } else if raw.starts_with("0b") || raw.starts_with("0B") {
-                i64::from_str_radix(&raw[2..], 2)?
-            } else if raw.starts_with("0o") || raw.starts_with("0O") {
-                i64::from_str_radix(&raw[2..], 8)?
-            } else {
-                raw.parse()?
-            };
-            Ok(FluxValue::Integer(n))
-        }
-        Rule::string_literal => {
-            let raw = inner.as_str();
-            let content = raw[1..raw.len()-1].to_string();
-            Ok(FluxValue::Str(content))
-        }
-        Rule::char_literal => {
-            let raw = inner.as_str();
-            let content = raw[1..raw.len()-1].to_string();
-            Ok(FluxValue::Str(content))
-        }
-        Rule::expr => {
-            // Parenthesized expression: "(" ~ expr ~ ")"
-            eval_expr(inner, vars)
-        }
-        Rule::ident => {
-            let name = inner.as_str();
-            // Check for math function names - but we can't evaluate them here
-            // because we don't have access to the arguments in this context
-            match name {
-                "PI"    => return Ok(FluxValue::Double(std::f64::consts::PI)),
-                "E"     => return Ok(FluxValue::Double(std::f64::consts::E)),
-                "LN2"   => return Ok(FluxValue::Double(std::f64::consts::LN_2)),
-                "LN10"  => return Ok(FluxValue::Double(std::f64::consts::LN_10)),
-                "SQRT2" => return Ok(FluxValue::Double(std::f64::consts::SQRT_2)),
-                "true"  => return Ok(FluxValue::Integer(1)),
-                "false" => return Ok(FluxValue::Integer(0)),
-                // For function names, we can't evaluate them without arguments
-                // They will be handled elsewhere
-                _ => {}
-            }
-            vars.get(name)
-                .cloned()
-                .ok_or_else(|| anyhow::anyhow!("❌ Undefined variable: '{}'\n   Make sure this variable is declared before use with: type {} = value;", name, name))
-        }
-        Rule::function_call => {
-            // Handle function calls in expressions
-            let mut call_inner = inner.into_inner();
-            let func_name = call_inner.next().ok_or_else(|| anyhow::anyhow!("Empty function call"))?;
-            let func_name_str = func_name.as_str();
-            
-            // Parse arguments
-            let mut args = Vec::new();
-            for arg in call_inner {
-                if arg.as_rule() == Rule::expr {
-                    args.push(eval_expr(arg, vars)?);
-                }
-            }
-            
-            // Evaluate built-in math functions
-            match func_name_str {
-                "abs" => {
-                    if args.len() != 1 {
-                        bail!("abs() requires 1 argument, got {}", args.len());
-                    }
-                    match &args[0] {
-                        FluxValue::Integer(n) => Ok(FluxValue::Integer(n.abs())),
-                        FluxValue::Float(f) => Ok(FluxValue::Float(f.abs())),
-                        FluxValue::Double(d) => Ok(FluxValue::Double(d.abs())),
-                        _ => bail!("⚠️  Type Error: abs() requires a numeric argument (int, float, or double)\n   Example: abs(-42), abs(-3.14f)"),
-                    }
-                }
-                "max" => {
-                    if args.len() != 2 {
-                        bail!("❌ Function Error: max() requires exactly 2 arguments, but got {}\n   Usage: max(value1, value2)", args.len());
-                    }
-                    match (&args[0], &args[1]) {
-                        (FluxValue::Integer(a), FluxValue::Integer(b)) => Ok(FluxValue::Integer(*a.max(b))),
-                        (FluxValue::Float(a), FluxValue::Float(b)) => Ok(FluxValue::Float(a.max(*b))),
-                        (FluxValue::Double(a), FluxValue::Double(b)) => Ok(FluxValue::Double(a.max(*b))),
-                        _ => bail!("⚠️  Type Error: max() requires both arguments to be the same numeric type\n   Use: max(intA, intB), max(floatA, floatB), or max(doubleA, doubleB)"),
-                    }
-                }
-                "min" => {
-                    if args.len() != 2 {
-                        bail!("❌ Function Error: min() requires exactly 2 arguments, but got {}\n   Usage: min(value1, value2)", args.len());
-                    }
-                    match (&args[0], &args[1]) {
-                        (FluxValue::Integer(a), FluxValue::Integer(b)) => Ok(FluxValue::Integer(*a.min(b))),
-                        (FluxValue::Float(a), FluxValue::Float(b)) => Ok(FluxValue::Float(a.min(*b))),
-                        (FluxValue::Double(a), FluxValue::Double(b)) => Ok(FluxValue::Double(a.min(*b))),
-                        _ => bail!("min() requires numeric arguments"),
-                    }
-                }
-                "pow" => {
-                    if args.len() != 2 {
-                        bail!("❌ Function Error: pow() requires exactly 2 arguments, but got {}\n   Usage: pow(base, exponent)", args.len());
-                    }
-                    match (&args[0], &args[1]) {
-                        (FluxValue::Integer(a), FluxValue::Integer(b)) => {
-                            Ok(FluxValue::Integer((*a as f64).powf(*b as f64) as i64))
-                        }
-                        (FluxValue::Float(a), FluxValue::Float(b)) => Ok(FluxValue::Float(a.powf(*b))),
-                        (FluxValue::Double(a), FluxValue::Double(b)) => Ok(FluxValue::Double(a.powf(*b))),
-                        _ => bail!("⚠️  Type Error: pow() requires both arguments to be numeric types\n   Example: pow(2, 3), pow(2.0f, 3.0f)"),
-                    }
-                }
-                "floor" => {
-                    if args.len() != 1 {
-                        bail!("❌ Function Error: floor() requires exactly 1 argument, but got {}\n   Usage: floor(value)", args.len());
-                    }
-                    match &args[0] {
-                        FluxValue::Float(f) => Ok(FluxValue::Float(f.floor())),
-                        FluxValue::Double(d) => Ok(FluxValue::Double(d.floor())),
-                        FluxValue::Integer(i) => Ok(FluxValue::Integer(*i)),
-                        _ => bail!("floor() requires numeric argument"),
-                    }
-                }
-                "ceil" => {
-                    if args.len() != 1 {
-                        bail!("❌ Function Error: ceil() requires exactly 1 argument, but got {}\n   Usage: ceil(value)", args.len());
-                    }
-                    match &args[0] {
-                        FluxValue::Float(f) => Ok(FluxValue::Float(f.ceil())),
-                        FluxValue::Double(d) => Ok(FluxValue::Double(d.ceil())),
-                        FluxValue::Integer(i) => Ok(FluxValue::Integer(*i)),
-                        _ => bail!("⚠️  Type Error: ceil() requires a numeric argument (int, float, or double)\n   Example: ceil(3.14f)"),
-                    }
-                }
-                "round" => {
-                    if args.len() != 1 {
-                        bail!("❌ Function Error: round() requires exactly 1 argument, but got {}\n   Usage: round(value)", args.len());
-                    }
-                    match &args[0] {
-                        FluxValue::Float(f) => Ok(FluxValue::Float(f.round())),
-                        FluxValue::Double(d) => Ok(FluxValue::Double(d.round())),
-                        FluxValue::Integer(i) => Ok(FluxValue::Integer(*i)),
-                        _ => bail!("⚠️  Type Error: round() requires a numeric argument (int, float, or double)\n   Example: round(3.14f)"),
-                    }
-                }
-                "sqrt" => {
-                    if args.len() != 1 {
-                        bail!("❌ Function Error: sqrt() requires exactly 1 argument, but got {}\n   Usage: sqrt(value)", args.len());
-                    }
-                    match &args[0] {
-                        FluxValue::Float(f) => Ok(FluxValue::Float(f.sqrt())),
-                        FluxValue::Double(d) => Ok(FluxValue::Double(d.sqrt())),
-                        FluxValue::Integer(i) => Ok(FluxValue::Double((*i as f64).sqrt())),
-                        _ => bail!("⚠️  Type Error: sqrt() requires a numeric argument (int, float, or double)\n   Example: sqrt(16), sqrt(16.0)"),
-                    }
-                }
-                "ToString" => {
-                    // Convert value to string representation
-                    if args.len() == 0 {
-                        bail!("❌ Function Error: ToString() requires at least the object itself to convert");
-                    }
-                    match &args[0] {
-                        FluxValue::Integer(i) => Ok(FluxValue::Str(i.to_string())),
-                        FluxValue::Float(f) => Ok(FluxValue::Str(f.to_string())),
-                        FluxValue::Double(d) => Ok(FluxValue::Str(d.to_string())),
-                        FluxValue::Str(s) => Ok(FluxValue::Str(s.clone())),
-                    }
-                }
-                _ => bail!("❌ Undefined function: '{}'\n   Available functions:\n   - Math: abs, max, min, pow, floor, ceil, round, sqrt\n   - Conversion: ToString\n   - I/O: print, serial_print", func_name_str),
-            }
-        }
-        _ => bail!("❌ Unexpected expression type in evaluation"),
-    }
 }
 
 // --- 6. CLI ARGUMENTS ---
@@ -2008,6 +1482,9 @@ enum Commands {
         inputs: Vec<PathBuf>,
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Path to write assembly output
+        #[arg(long)]
+        asm: Option<PathBuf>,
         /// Compile all .fsh files in a directory (e.g., --all os_fs/src)
         #[arg(long)]
         all: Option<PathBuf>,
@@ -2023,10 +1500,10 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Compile { inputs, output, all, run } => {
+        Commands::Compile { inputs, output, asm, all, run } => {
             // Déterminer les fichiers à compiler
             let mut files_to_compile = inputs.clone();
-            
+
             // Si --all est spécifié, scanner le répertoire
             if let Some(dir_path) = all {
                 if dir_path.is_dir() {
@@ -2075,26 +1552,38 @@ fn main() -> Result<()> {
             let mut object_files: Vec<PathBuf> = Vec::new();
 
             for input in &files_to_compile {
+                let absolute_input = input.canonicalize()
+                    .with_context(|| format!("Failed to get absolute path for {:?}", input))?;
+
                 // Security: Validate input file
-                validate_input_path(&input)
-                    .with_context(|| format!("Invalid input path: {:?}", input))?;
-                validate_file_size(&input)
-                    .with_context(|| format!("Input file validation failed: {:?}", input))?;
+                validate_input_path(&absolute_input)
+                    .with_context(|| format!("Invalid input path: {:?}", absolute_input))?;
+                validate_file_size(&absolute_input)
+                    .with_context(|| format!("Input file validation failed: {:?}", absolute_input))?;
                 
-                println!("🔍 Reading source: {:?}", input);
-                let content = fs::read_to_string(input)
-                    .with_context(|| format!("Could not read file {:?}", input))?;
+                println!("🔍 Reading source: {:?}", absolute_input);
+                let content = fs::read_to_string(&absolute_input)
+                    .with_context(|| format!("Could not read file {:?}", absolute_input))?;
 
                 // Process include statements
-                let processed_content = process_includes(&content, &input.parent().unwrap_or(&PathBuf::from(".")))?;
+                let processed_content = process_includes(&content, &absolute_input.parent().unwrap_or(&PathBuf::from(".")))?;
                 
                 // Validate Main class and main method
                 validate_main_class(&processed_content)?;
                 
-                let asm_output = compile_fsh_to_asm(&processed_content, input)?;
+                let asm_output = compile_fsh_to_asm(&processed_content, &absolute_input)?;
+
+                // Write .asm file if requested
+                if let Some(asm_path) = &asm {
+                    validate_output_path(asm_path)
+                        .with_context(|| format!("Invalid output path: {:?}", asm_path))?;
+                    fs::write(asm_path, &asm_output)
+                        .with_context(|| format!("Could not write {:?}", asm_path))?;
+                    println!("📝 Generated ASM: {:?}", asm_path);
+                }
 
                 // Write .asm file
-                let asm_path = input.with_extension("asm");
+                let asm_path = absolute_input.with_extension("asm");
                 validate_output_path(&asm_path)
                     .with_context(|| format!("Invalid output path: {:?}", asm_path))?;
                 
@@ -2227,9 +1716,8 @@ fn eval_math_function(func_name: &str, args: Vec<FluxValue>) -> Result<FluxValue
                 anyhow::bail!("sqrt expects 1 argument, got {}", args.len());
             }
             match &args[0] {
-                FluxValue::Integer(n) => Ok(FluxValue::Double((*n as f64).sqrt())),
+                FluxValue::Int(n) => Ok(FluxValue::Float((*n as f64).sqrt())),
                 FluxValue::Float(f) => Ok(FluxValue::Float(f.sqrt())),
-                FluxValue::Double(d) => Ok(FluxValue::Double(d.sqrt())),
                 _ => anyhow::bail!("sqrt expects numeric argument"),
             }
         }
@@ -2238,341 +1726,87 @@ fn eval_math_function(func_name: &str, args: Vec<FluxValue>) -> Result<FluxValue
                 anyhow::bail!("abs expects 1 argument, got {}", args.len());
             }
             match &args[0] {
-                FluxValue::Integer(n) => Ok(FluxValue::Integer(n.abs())),
+                FluxValue::Int(n) => Ok(FluxValue::Int(n.abs())),
                 FluxValue::Float(f) => Ok(FluxValue::Float(f.abs())),
-                FluxValue::Double(d) => Ok(FluxValue::Double(d.abs())),
-                _ => anyhow::bail!("abs expects numeric argument"),
+                _ => bail!("Type Error: abs() requires a numeric argument."),
             }
         }
-        "floor" => {
-            if args.len() != 1 {
-                anyhow::bail!("floor expects 1 argument, got {}", args.len());
+        "max" => {
+            if args.len() != 2 {
+                bail!("Function Error: max() requires exactly 2 arguments, but got {}. Usage: max(value1, value2)", args.len());
             }
-            match &args[0] {
-                FluxValue::Integer(n) => Ok(FluxValue::Integer(*n)),
-                FluxValue::Float(f) => Ok(FluxValue::Float(f.floor())),
-                FluxValue::Double(d) => Ok(FluxValue::Double(d.floor())),
-                _ => anyhow::bail!("floor expects numeric argument"),
+            let v1 = &args[0];
+            let v2 = &args[1];
+            match (v1, v2) {
+                (FluxValue::Int(a), FluxValue::Int(b)) => Ok(FluxValue::Int(std::cmp::max(*a, *b))),
+                (FluxValue::Float(a), FluxValue::Float(b)) => Ok(FluxValue::Float(a.max(*b))),
+                _ => bail!("max() requires numeric arguments"),
             }
-        }
-        "ceil" => {
-            if args.len() != 1 {
-                anyhow::bail!("ceil expects 1 argument, got {}", args.len());
+        },
+        "min" => {
+            if args.len() != 2 {
+                bail!("Function Error: min() requires exactly 2 arguments, but got {}. Usage: min(value1, value2)", args.len());
             }
-            match &args[0] {
-                FluxValue::Integer(n) => Ok(FluxValue::Integer(*n)),
-                FluxValue::Float(f) => Ok(FluxValue::Float(f.ceil())),
-                FluxValue::Double(d) => Ok(FluxValue::Double(d.ceil())),
-                _ => anyhow::bail!("ceil expects numeric argument"),
+            let v1 = &args[0];
+            let v2 = &args[1];
+            match (v1, v2) {
+                (FluxValue::Int(a), FluxValue::Int(b)) => Ok(FluxValue::Int(std::cmp::min(*a, *b))),
+                (FluxValue::Float(a), FluxValue::Float(b)) => Ok(FluxValue::Float(a.min(*b))),
+                _ => bail!("min() requires numeric arguments"),
             }
-        }
-        "round" => {
-            if args.len() != 1 {
-                anyhow::bail!("round expects 1 argument, got {}", args.len());
-            }
-            match &args[0] {
-                FluxValue::Integer(n) => Ok(FluxValue::Integer(*n)),
-                FluxValue::Float(f) => Ok(FluxValue::Float(f.round())),
-                FluxValue::Double(d) => Ok(FluxValue::Double(d.round())),
-                _ => anyhow::bail!("round expects numeric argument"),
-            }
-        }
-        "sin" => {
-            if args.len() != 1 {
-                anyhow::bail!("sin expects 1 argument, got {}", args.len());
-            }
-            match &args[0] {
-                FluxValue::Integer(n) => Ok(FluxValue::Double((*n as f64).sin())),
-                FluxValue::Float(f) => Ok(FluxValue::Float(f.sin())),
-                FluxValue::Double(d) => Ok(FluxValue::Double(d.sin())),
-                _ => anyhow::bail!("sin expects numeric argument"),
-            }
-        }
-        "cos" => {
-            if args.len() != 1 {
-                anyhow::bail!("cos expects 1 argument, got {}", args.len());
-            }
-            match &args[0] {
-                FluxValue::Integer(n) => Ok(FluxValue::Double((*n as f64).cos())),
-                FluxValue::Float(f) => Ok(FluxValue::Float(f.cos())),
-                FluxValue::Double(d) => Ok(FluxValue::Double(d.cos())),
-                _ => anyhow::bail!("cos expects numeric argument"),
-            }
-        }
-        "tan" => {
-            if args.len() != 1 {
-                anyhow::bail!("tan expects 1 argument, got {}", args.len());
-            }
-            match &args[0] {
-                FluxValue::Integer(n) => Ok(FluxValue::Double((*n as f64).tan())),
-                FluxValue::Float(f) => Ok(FluxValue::Float(f.tan())),
-                FluxValue::Double(d) => Ok(FluxValue::Double(d.tan())),
-                _ => anyhow::bail!("tan expects numeric argument"),
-            }
-        }
+        },
         "pow" => {
             if args.len() != 2 {
-                anyhow::bail!("pow expects 2 arguments, got {}", args.len());
+                bail!("Function Error: pow() requires exactly 2 arguments, but got {}. Usage: pow(base, exponent)", args.len());
             }
-            let base = match &args[0] {
-                FluxValue::Integer(n) => *n as f64,
-                FluxValue::Float(f) => *f as f64,
-                FluxValue::Double(d) => *d,
-                _ => anyhow::bail!("pow expects numeric arguments"),
-            };
-            let exp = match &args[1] {
-                FluxValue::Integer(n) => *n as f64,
-                FluxValue::Float(f) => *f as f64,
-                FluxValue::Double(d) => *d,
-                _ => anyhow::bail!("pow expects numeric arguments"),
-            };
-            Ok(FluxValue::Double(base.powf(exp)))
-        }
-        "ln" => {
+            let base = &args[0];
+            let exponent = &args[1];
+            match (base, exponent) {
+                (FluxValue::Int(b), FluxValue::Int(e)) => Ok(FluxValue::Int(b.pow(*e as u32))),
+                (FluxValue::Float(b), FluxValue::Float(e)) => Ok(FluxValue::Float(b.powf(*e))),
+                _ => bail!("Type Error: pow() requires both arguments to be numeric types."),
+            }
+        },
+        "floor" => {
             if args.len() != 1 {
-                anyhow::bail!("ln expects 1 argument, got {}", args.len());
+                bail!("Function Error: floor() requires exactly 1 argument, but got {}. Usage: floor(value)", args.len());
             }
-            match &args[0] {
-                FluxValue::Integer(n) => Ok(FluxValue::Double((*n as f64).ln())),
-                FluxValue::Float(f) => Ok(FluxValue::Float(f.ln())),
-                FluxValue::Double(d) => Ok(FluxValue::Double(d.ln())),
-                _ => anyhow::bail!("ln expects numeric argument"),
+            let val = &args[0];
+            match val {
+                FluxValue::Float(f) => Ok(FluxValue::Float(f.floor())),
+                FluxValue::Int(i) => Ok(FluxValue::Int(*i)), // floor on int is identity
+                _ => bail!("Type Error: floor() requires a numeric argument."),
             }
-        }
-        "log10" => {
+        },
+        "ceil" => {
             if args.len() != 1 {
-                anyhow::bail!("log10 expects 1 argument, got {}", args.len());
+                bail!("Function Error: ceil() requires exactly 1 argument, but got {}. Usage: ceil(value)", args.len());
             }
-            match &args[0] {
-                FluxValue::Integer(n) => Ok(FluxValue::Double((*n as f64).log10())),
-                FluxValue::Float(f) => Ok(FluxValue::Float(f.log10())),
-                FluxValue::Double(d) => Ok(FluxValue::Double(d.log10())),
-                _ => anyhow::bail!("log10 expects numeric argument"),
+            let val = &args[0];
+            match val {
+                FluxValue::Float(f) => Ok(FluxValue::Float(f.ceil())),
+                FluxValue::Int(i) => Ok(FluxValue::Int(*i)), // ceil on int is identity
+                _ => bail!("Type Error: ceil() requires a numeric argument."),
             }
-        }
-        _ => anyhow::bail!("Unknown math function: {}", func_name),
-    }
-}
-
-fn compile_condition(
-    condition_pair: pest::iterators::Pair<Rule>,
-    label_false: &str,
-    text_section: &mut String,
-    symbols: &SymbolTable,
-    var_offsets: &HashMap<String, i32>,
-) -> Result<()> {
-    // condition = { "(" ~ condition ~ ")" | expr }
-    let inner = condition_pair.into_inner().next().unwrap();
-
-    match inner.as_rule() {
-        Rule::condition => {
-            // Parenthèses — récursion
-            compile_condition(inner, label_false, text_section, symbols, var_offsets)?;
-        }
-        Rule::expr => {
-            // Essayer d'évaluer statiquement d'abord
-            if let Ok(val) = eval_expr(inner.clone(), &symbols.variables) {
-                match val {
-                    FluxValue::Integer(0) => {
-                        text_section.push_str(&format!("    jmp {}\n", label_false));
-                    }
-                    FluxValue::Integer(_) => {
-                        // Toujours vrai — pas de saut
-                    }
-                    _ => {}
-                }
-            } else {
-                // Expression dynamique — générer du vrai code de comparaison
-                let expr_str = inner.as_str();
-                
-                // Try to extract comparison operands: "var op value"
-                let mut found_comparison = false;
-                
-                // Check for common comparison operators
-                if expr_str.contains("<") && !expr_str.contains("<=") {
-                    let parts: Vec<&str> = expr_str.split('<').collect();
-                    if parts.len() == 2 {
-                        let var_name = parts[0].trim();
-                        let value_str = parts[1].trim();
-                        if let Some(&offset) = var_offsets.get(var_name) {
-                            if let Ok(val) = value_str.parse::<i64>() {
-                                text_section.push_str(&format!("    mov rax, [rbp-{}]\n", offset));
-                                text_section.push_str(&format!("    cmp rax, {}\n", val));
-                                text_section.push_str(&format!("    jge {}\n", label_false));
-                                found_comparison = true;
-                            }
-                        }
-                    }
-                } else if expr_str.contains(">") && !expr_str.contains(">=") {
-                    let parts: Vec<&str> = expr_str.split('>').collect();
-                    if parts.len() == 2 {
-                        let var_name = parts[0].trim();
-                        let value_str = parts[1].trim();
-                        if let Some(&offset) = var_offsets.get(var_name) {
-                            if let Ok(val) = value_str.parse::<i64>() {
-                                text_section.push_str(&format!("    mov rax, [rbp-{}]\n", offset));
-                                text_section.push_str(&format!("    cmp rax, {}\n", val));
-                                text_section.push_str(&format!("    jle {}\n", label_false));
-                                found_comparison = true;
-                            }
-                        }
-                    }
-                } else if expr_str.contains("==") {
-                    let parts: Vec<&str> = expr_str.split("==").collect();
-                    if parts.len() == 2 {
-                        let var_name = parts[0].trim();
-                        let value_str = parts[1].trim();
-                        if let Some(&offset) = var_offsets.get(var_name) {
-                            if let Ok(val) = value_str.parse::<i64>() {
-                                text_section.push_str(&format!("    mov rax, [rbp-{}]\n", offset));
-                                text_section.push_str(&format!("    cmp rax, {}\n", val));
-                                text_section.push_str(&format!("    jne {}\n", label_false));
-                                found_comparison = true;
-                            }
-                        }
-                    }
-                } else if expr_str.contains("!=") {
-                    let parts: Vec<&str> = expr_str.split("!=").collect();
-                    if parts.len() == 2 {
-                        let var_name = parts[0].trim();
-                        let value_str = parts[1].trim();
-                        if let Some(&offset) = var_offsets.get(var_name) {
-                            if let Ok(val) = value_str.parse::<i64>() {
-                                text_section.push_str(&format!("    mov rax, [rbp-{}]\n", offset));
-                                text_section.push_str(&format!("    cmp rax, {}\n", val));
-                                text_section.push_str(&format!("    je {}\n", label_false));
-                                found_comparison = true;
-                            }
-                        }
-                    }
-                } else if expr_str.contains("<=") {
-                    let parts: Vec<&str> = expr_str.split("<=").collect();
-                    if parts.len() == 2 {
-                        let var_name = parts[0].trim();
-                        let value_str = parts[1].trim();
-                        if let Some(&offset) = var_offsets.get(var_name) {
-                            if let Ok(val) = value_str.parse::<i64>() {
-                                text_section.push_str(&format!("    mov rax, [rbp-{}]\n", offset));
-                                text_section.push_str(&format!("    cmp rax, {}\n", val));
-                                text_section.push_str(&format!("    jg {}\n", label_false));
-                                found_comparison = true;
-                            }
-                        }
-                    }
-                } else if expr_str.contains(">=") {
-                    let parts: Vec<&str> = expr_str.split(">=").collect();
-                    if parts.len() == 2 {
-                        let var_name = parts[0].trim();
-                        let value_str = parts[1].trim();
-                        if let Some(&offset) = var_offsets.get(var_name) {
-                            if let Ok(val) = value_str.parse::<i64>() {
-                                text_section.push_str(&format!("    mov rax, [rbp-{}]\n", offset));
-                                text_section.push_str(&format!("    cmp rax, {}\n", val));
-                                text_section.push_str(&format!("    jl {}\n", label_false));
-                                found_comparison = true;
-                            }
-                        }
-                    }
-                }
-                
-                if !found_comparison {
-                    // Fallback: generic condition evaluation
-                    text_section.push_str(&format!("    ; condition: {}\n", expr_str.trim()));
-                    text_section.push_str(&format!("    test rax, rax\n    jz {}\n", label_false));
-                }
+        },
+        "round" => {
+            if args.len() != 1 {
+                bail!("Function Error: round() requires exactly 1 argument, but got {}. Usage: round(value)", args.len());
             }
-        }
-        _ => {}
-    }
-    Ok(())
-}
-
-fn compile_block_from_if(
-    if_pair: pest::iterators::Pair<Rule>,
-    content: &str,
-    source_lines: &[&str],
-    symbols: &mut SymbolTable,
-    data_section: &mut String,
-    text_section: &mut String,
-    unique_id: &mut usize,
-    var_offsets: &mut HashMap<String, i32>,
-    stack_offset: &mut i32,
-    loop_start: Option<String>,
-    loop_end: Option<String>,
-) -> Result<()> {
-    // Wrapper pour compiler un if_stmt standalone dans un else
-    let mut inner = if_pair.into_inner();
-    let cond = inner.next().unwrap();
-    let then = inner.next().unwrap();
-    let else_ = inner.next();
-
-    let id = *unique_id; *unique_id += 1;
-    let lf = format!(".if_false_{}", id);
-    let le = format!(".if_end_{}", id);
-
-    compile_condition(cond, &lf, text_section, symbols, &var_offsets)?;
-    compile_block_with_loop_context(then, content, source_lines, symbols, data_section, text_section, unique_id, var_offsets, stack_offset, false, loop_start.clone(), loop_end.clone())?;
-    text_section.push_str(&format!("    jmp {}\n{}:\n", le, lf));
-    if let Some(ep) = else_ {
-        if let Some(eb) = ep.into_inner().next() {
-            if eb.as_rule() == Rule::block {
-                compile_block_with_loop_context(eb, content, source_lines, symbols, data_section, text_section, unique_id, var_offsets, stack_offset, false, loop_start.clone(), loop_end.clone())?;
+            let val = &args[0];
+            match val {
+                FluxValue::Float(f) => Ok(FluxValue::Float(f.round())),
+                FluxValue::Int(i) => Ok(FluxValue::Int(*i)), // round on int is identity
+                _ => bail!("Type Error: round() requires a numeric argument."),
             }
+        },
+        "ToString" => {
+            if args.is_empty() {
+                bail!("Function Error: ToString() requires at least the object itself to convert");
+            }
+            let val = &args[0];
+            Ok(FluxValue::Str(val.to_string()))
         }
-    }
-    text_section.push_str(&format!("{}:\n", le));
-    Ok(())
-}
-
-fn apply_op(left: FluxValue, op: &str, right: FluxValue) -> Result<FluxValue> {
-    match (&left, &right) {
-        (FluxValue::Integer(l), FluxValue::Integer(r)) => Ok(FluxValue::Integer(match op {
-            "+"  => l + r,
-            "-"  => l - r,
-            "*"  => l * r,
-            "/"  => { if *r == 0 { bail!("Division by zero") } l / r }
-            "%"  => { if *r == 0 { bail!("Modulo by zero") } l % r }
-            "&"  => l & r,
-            "|"  => l | r,
-            "^"  => l ^ r,
-            "<<" => l << r,
-            ">>" => l >> r,
-            "==" => if l == r { 1 } else { 0 },
-            "!=" => if l != r { 1 } else { 0 },
-            "<"  => if l < r  { 1 } else { 0 },
-            "<=" => if l <= r { 1 } else { 0 },
-            ">"  => if l > r  { 1 } else { 0 },
-            ">=" => if l >= r { 1 } else { 0 },
-            "&&" => if *l != 0 && *r != 0 { 1 } else { 0 },
-            "||" => if *l != 0 || *r != 0 { 1 } else { 0 },
-            _    => bail!("Unknown operator: {}", op),
-        })),
-        (FluxValue::Str(l), FluxValue::Str(r)) => {
-            if op == "+" { Ok(FluxValue::Str(format!("{}{}", l, r))) }
-            else { bail!("Unsupported operator {} on strings", op) }
-        }
-        (FluxValue::Str(l), FluxValue::Integer(r)) => {
-            if op == "+" { Ok(FluxValue::Str(format!("{}{}", l, r))) }
-            else { bail!("Unsupported operator {} between string and int", op) }
-        }
-        (FluxValue::Integer(l), FluxValue::Str(r)) => {
-            if op == "+" { Ok(FluxValue::Str(format!("{}{}", l, r))) }
-            else { bail!("Unsupported operator {} between int and string", op) }
-        }
-        (FluxValue::Float(l), FluxValue::Float(r)) => Ok(FluxValue::Float(match op {
-            "+" => l + r, "-" => l - r, "*" => l * r,
-            "/" => { if *r == 0.0 { bail!("Division by zero") } l / r }
-            _   => bail!("Unknown float operator: {}", op),
-        })),
-        (FluxValue::Double(l), FluxValue::Double(r)) => Ok(FluxValue::Double(match op {
-            "+" => l + r, "-" => l - r, "*" => l * r,
-            "/" => { if *r == 0.0 { bail!("Division by zero") } l / r }
-            _   => bail!("Unknown double operator: {}", op),
-        })),
-        (FluxValue::Integer(l), FluxValue::Float(r))  => Ok(FluxValue::Float(*l as f32 + r)),
-        (FluxValue::Float(l),   FluxValue::Integer(r)) => Ok(FluxValue::Float(l + *r as f32)),
-        (FluxValue::Integer(l), FluxValue::Double(r)) => Ok(FluxValue::Double(*l as f64 + r)),
-        (FluxValue::Double(l),  FluxValue::Integer(r)) => Ok(FluxValue::Double(l + *r as f64)),
-        _ => bail!("Arithmetic on incompatible types"),
+        _ => bail!("Undefined function: '{}'", func_name),
     }
 }

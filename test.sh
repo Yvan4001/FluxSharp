@@ -2,6 +2,7 @@
 # Comprehensive test suite for FluxSharp compiler features
 # Tests: Bounds Checking, Advanced Security, Async/Await, Exception Handling
 
+export PATH="$HOME/.cargo/bin:$PATH"
 set -e
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -45,8 +46,10 @@ run_test() {
     fi
     
     # Try to compile
+    echo -e "\n${YELLOW}DEBUG: Compiling $test_file...${NC}"
     compile_output=$("$FLUXC_BIN" compile "$test_file" -o /tmp/test_prog 2>&1)
     compile_exit=$?
+    echo -e "${YELLOW}DEBUG: Compilation finished. Exit code: $compile_exit${NC}"
     
     if [ $compile_exit -ne 0 ]; then
         if [ "$expected_error" -eq 1 ]; then
@@ -73,18 +76,21 @@ run_test() {
         fi
     fi
     
-    # Try to run the program
-    /tmp/test_prog 2>&1 >/dev/null
+    # Try to run the program with a timeout
+    echo -e "${YELLOW}DEBUG: Running /tmp/test_prog...${NC}"
+    run_output=$(timeout 15s /tmp/test_prog 2>&1)
     run_exit=$?
+    echo -e "${YELLOW}DEBUG: Run finished. Exit code: $run_exit${NC}"
     
     # Check if program output contains "PASS" (success indicator)
-    if /tmp/test_prog 2>&1 | grep -q "PASS"; then
+    if echo "$run_output" | grep -q "PASS"; then
         if [ "$expected_error" -eq 0 ]; then
             echo -e "${GREEN}PASS${NC}"
             PASSED=$((PASSED + 1))
             return 0
         else
             echo -e "${RED}FAIL${NC} (expected error but succeeded)"
+            echo "Output: $run_output"
             FAILED=$((FAILED + 1))
             return 1
         fi
@@ -94,7 +100,9 @@ run_test() {
             PASSED=$((PASSED + 1))
             return 0
         else
-            echo -e "${RED}FAIL${NC} (unexpected error)"
+            echo -e "${RED}FAIL${NC} (unexpected error or no PASS message)"
+            echo "Exit code: $run_exit"
+            echo "Output: $run_output"
             FAILED=$((FAILED + 1))
             return 1
         fi
@@ -367,4 +375,3 @@ main() {
 
 # Run main
 main "$@"
-

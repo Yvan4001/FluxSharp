@@ -10,6 +10,7 @@
 /// - Resource cleanup (finally)
 
 use std::collections::HashMap;
+use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[allow(dead_code)]
@@ -319,6 +320,57 @@ impl ExceptionHandler {
     #[allow(dead_code)]
     pub fn in_try_block(&self) -> bool {
         !self.active_try_blocks.is_empty()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SymbolTable {
+    pub variables: HashMap<String, FluxValue>,
+    pub structs: HashMap<String, Vec<(String, FluxType)>>,
+    pub functions: HashMap<String, FunctionSignature>,
+    pub variable_types: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionSignature {
+    pub return_type: FluxType,
+    pub parameters: Vec<(String, FluxType)>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FluxValue {
+    Int(i64),
+    Float(f64),
+    Str(String),
+}
+
+impl fmt::Display for FluxValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FluxValue::Int(val) => write!(f, "{}", val),
+            FluxValue::Float(val) => write!(f, "{}", val),
+            FluxValue::Str(val) => write!(f, "{}", val),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FluxType {
+    Integer,
+    Float,
+    String,
+    Void,
+}
+
+impl FluxType {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "int" => FluxType::Integer,
+            "float" => FluxType::Float,
+            "string" => FluxType::String,
+            "void" => FluxType::Void,
+            _ => FluxType::Void, // Fallback
+        }
     }
 }
 

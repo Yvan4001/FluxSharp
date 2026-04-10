@@ -93,7 +93,7 @@ size_expr = { int_literal ~ (("*" | "+") ~ int_literal)* }
 array_decl = { (type_ident | ident) ~ "[" ~ size_expr ~ "]" ~ ident ~ ";" }
 
 // Array access statement
-array_access = { ident ~ "[" ~ expr ~ "]" ~ "=" ~ expr ~ ";" }
+array_access = { ident ~ "[" ~ expr ~ "]" }
 
 // Attribute
 attribute = { "[" ~ ident ~ ("(" ~ int_literal ~ ")")? ~ "]" }
@@ -115,15 +115,12 @@ class_def = {
 }
 
 // Condition 
-condition = {
-    "(" ~ condition ~ ")"
-    | expr
-}
+condition = { "(" ~ expr ~ ")" }
 
 increment = { ident ~ ("++" | "--" | (assignment_op ~ expr)) }
 increment_stmt = { ident ~ increment_op ~ ";" }
 
-assignment_stmt = { ident ~ ("." ~ ident)? ~ ("["~ expr ~ "]")? ~ assignment_op ~ expr ~ ";" }
+assignment_stmt = { (ident ~ ("." ~ ident)? | array_access) ~ assignment_op ~ expr ~ ";" }
 
 for_init = { (type_ident | ident) ~ ident ~ ("=" ~ expr)? }
 
@@ -164,7 +161,6 @@ statement = _{
     | array_decl
     | increment_stmt
     | assignment_stmt
-    | array_access
     | function_call
 }
 

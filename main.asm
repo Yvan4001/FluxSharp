@@ -24,14 +24,14 @@ str_5: db "Add(10, 20) = ", 0
 str_6: db "Subtract(30, 15) = ", 0
 str_7: db "Multiply(5, 6) = ", 0
 str_8: db "=== Test 3: ToString() for Primitive Types ===", 0
-float_9: dd 0x4048f5c3
-double_10: dq 0x4005bf0995aaf790
+float_9: dd 0x40091eb851eb851f
+float_10: dd 0x4005bf0995aaf790
 str_11: db "Hello", 0
 str_12: db "int value: ", 0
 str_13: db "float value: ", 0
 float_14: db "3.14", 0
 str_15: db "double value: ", 0
-double_16: db "2.71828", 0
+float_16: db "2.71828", 0
 str_17: db "string value: ", 0
 str_18: db "Hello", 0
 str_19: db "=== Test 4: Math Functions ===", 0
@@ -92,7 +92,8 @@ Calculator_Subtract:
     ; --- return a - b; ---
     mov rax, rdi
     mov rcx, rsi
-    sub rax, rcx
+    sub rbx, rax
+    mov rax, rbx
     mov rsp, rbp
     pop rbp
     ret
@@ -118,6 +119,7 @@ Calculator_ToString:
     mov rsp, rbp
     pop rbp
     ret
+
 
     mov rsp, rbp
     pop rbp
@@ -146,7 +148,8 @@ Main_main:
     call _fsh_print_str
 
     ; --- print(double21); ---
-    mov rdi, [rbp-16]
+    mov rax, [rbp-16]
+    mov rdi, rax
     call _fsh_print_int
 
     ; --- int triple7 = helper.GetTriple(7); ---
@@ -160,7 +163,8 @@ Main_main:
     call _fsh_print_str
 
     ; --- print(triple7); ---
-    mov rdi, [rbp-24]
+    mov rax, [rbp-24]
+    mov rdi, rax
     call _fsh_print_int
 
     ; --- print("=== Test 2: Calculator Methods ==="); ---
@@ -182,7 +186,8 @@ Main_main:
     call _fsh_print_str
 
     ; --- print(sum); ---
-    mov rdi, [rbp-40]
+    mov rax, [rbp-40]
+    mov rdi, rax
     call _fsh_print_int
 
     ; --- int diff = calc.Subtract(30, 15); ---
@@ -197,7 +202,8 @@ Main_main:
     call _fsh_print_str
 
     ; --- print(diff); ---
-    mov rdi, [rbp-48]
+    mov rax, [rbp-48]
+    mov rdi, rax
     call _fsh_print_int
 
     ; --- int prod = calc.Multiply(5, 6); ---
@@ -212,7 +218,8 @@ Main_main:
     call _fsh_print_str
 
     ; --- print(prod); ---
-    mov rdi, [rbp-56]
+    mov rax, [rbp-56]
+    mov rdi, rax
     call _fsh_print_int
 
     ; --- print("=== Test 3: ToString() for Primitive Types ==="); ---
@@ -230,8 +237,8 @@ Main_main:
 
     ; --- double doubleValue = 2.71828; ---
     sub rsp, 8
-    mov rax, [rel double_10]
-    mov qword [rbp-80], rax
+    mov eax, [rel float_10]
+    mov dword [rbp-80], eax
 
     ; --- string strValue = "Hello"; ---
     sub rsp, 8
@@ -259,7 +266,7 @@ Main_main:
     call _fsh_print_str
 
     ; --- print(doubleValue.ToString()); ---
-    lea rdi, [rel double_16]
+    lea rdi, [rel float_16]
     call _fsh_print_str
 
     ; --- print("string value: "); ---
@@ -286,7 +293,8 @@ Main_main:
     call _fsh_print_str
 
     ; --- print(powResult); ---
-    mov rdi, [rbp-96]
+    mov rax, [rbp-96]
+    mov rdi, rax
     call _fsh_print_int
 
     ; --- int maxResult = max(10, 20); ---
@@ -301,7 +309,8 @@ Main_main:
     call _fsh_print_str
 
     ; --- print(maxResult); ---
-    mov rdi, [rbp-104]
+    mov rax, [rbp-104]
+    mov rdi, rax
     call _fsh_print_int
 
     ; --- int minResult = min(10, 20); ---
@@ -316,7 +325,8 @@ Main_main:
     call _fsh_print_str
 
     ; --- print(minResult); ---
-    mov rdi, [rbp-112]
+    mov rax, [rbp-112]
+    mov rdi, rax
     call _fsh_print_int
 
     ; --- print("=== Test 5: Variables ==="); ---
