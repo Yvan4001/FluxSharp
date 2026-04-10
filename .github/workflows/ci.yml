@@ -20,5 +20,8 @@ jobs:
       - name: Build Compiler
         run: cd flux_compiler && cargo build --release
 
+      - name: Run Diagnostic Test
+        run: chmod +x test_debug.sh && ./test_debug.sh
+
       - name: Run Security & Logic Tests
         run: chmod +x build.sh && ./build.sh --test

@@ -38,15 +38,18 @@ run_test() {
     local expected_error=$3  # 1 = expect error/no output, 0 = expect success
     
     TESTS_RUN=$((TESTS_RUN + 1))
-    echo -ne "Testing: $test_name ... "
+    printf "%-40s ... " "$test_name"
     
     if [ ! -f "$test_file" ]; then
-        echo -e "${RED}SKIP${NC} (file not found)"
+        echo -e "${RED}SKIP${NC}"
         return 1
     fi
     
+    # Use test_suite directory for output (within allowed project directory)
+    TEST_PROG="$TEST_DIR/$(basename "$test_file" .fsh)_prog"
+    
     # Try to compile
-    compile_output=$("$FLUXC_BIN" compile "$test_file" -o /tmp/test_prog 2>&1)
+    compile_output=$("$FLUXC_BIN" compile "$test_file" -o "$TEST_PROG" 2>&1)
     compile_exit=$?
     
     if [ $compile_exit -ne 0 ]; then
@@ -55,16 +58,18 @@ run_test() {
             PASSED=$((PASSED + 1))
             return 0
         else
-            echo -e "${RED}FAIL${NC} (unexpected compilation error)"
+            echo -e "${RED}FAIL${NC} (compilation error)"
+            echo "Error output:"
+            echo "$compile_output"
             FAILED=$((FAILED + 1))
             return 1
         fi
     fi
     
     # Check if executable was created
-    if [ ! -f "/tmp/test_prog" ]; then
+    if [ ! -f "$TEST_PROG" ]; then
         if [ "$expected_error" -eq 1 ]; then
-            echo -e "${GREEN}PASS${NC} (no executable created as expected)"
+            echo -e "${GREEN}PASS${NC} (no executable as expected)"
             PASSED=$((PASSED + 1))
             return 0
         else
@@ -75,7 +80,7 @@ run_test() {
     fi
     
     # Try to run the program with a timeout
-    run_output=$(timeout 15s /tmp/test_prog 2>&1)
+    run_output=$(timeout 15s "$TEST_PROG" 2>&1)
     run_exit=$?
     
     # Check if program output contains "PASS" (success indicator)
@@ -96,9 +101,10 @@ run_test() {
             PASSED=$((PASSED + 1))
             return 0
         else
-            echo -e "${RED}FAIL${NC} (unexpected error or no PASS message)"
+            echo -e "${RED}FAIL${NC}"
             echo "Exit code: $run_exit"
-            echo "Output: $run_output"
+            echo "Output:"
+            echo "$run_output"
             FAILED=$((FAILED + 1))
             return 1
         fi

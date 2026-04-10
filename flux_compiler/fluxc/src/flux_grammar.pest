@@ -120,7 +120,15 @@ condition = { "(" ~ expr ~ ")" }
 increment = { ident ~ ("++" | "--" | (assignment_op ~ expr)) }
 increment_stmt = { ident ~ increment_op ~ ";" }
 
-assignment_stmt = { (ident ~ ("." ~ ident)? | array_access) ~ assignment_op ~ expr ~ ";" }
+// Assignment statement - handles: x = 5, obj.prop = 5, arr[0] = 5
+// Order matters in PEG: try longest match first
+assignment_stmt = { 
+    (
+        ident ~ "[" ~ expr ~ "]" ~ assignment_op ~ expr    // arr[0] = 42 (array access)
+        | ident ~ "." ~ ident ~ assignment_op ~ expr       // obj.prop = 42 (member access)
+        | ident ~ assignment_op ~ expr                      // x = 42 (simple)
+    ) ~ ";"
+}
 
 for_init = { (type_ident | ident) ~ ident ~ ("=" ~ expr)? }
 

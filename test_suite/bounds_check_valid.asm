@@ -14,6 +14,9 @@ extern _fsh_ceil
 extern _fsh_round
 extern _fsh_sqrt
 
+section .data
+str_0: db "✅ Bounds check valid: PASS", 0
+
 section .text
 ; === Compiled from "/run/media/yvan/E6EAD2EBEAD2B6D1/Projet_Dev/FluxSharp/test_suite/bounds_check_valid.fsh" by fluxc ===
 extern _fsh_print_str
@@ -33,7 +36,8 @@ Main_main:
     ; --- arr[9] = 999; ---
 
     ; --- print("✅ Bounds check valid: PASS"); ---
-    ; ❌ ERROR: Complex expression not supported in argument for print
+    lea rdi, [rel str_0]
+    call _fsh_print_str
 
     mov rsp, rbp
     pop rbp
