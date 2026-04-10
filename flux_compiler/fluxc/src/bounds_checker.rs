@@ -279,47 +279,71 @@ pub fn compile_condition(
     label_false: &str,
     text_section: &mut String,
     symbols: &SymbolTable,
-    _var_offsets: &HashMap<String, i32>,
+    var_offsets: &HashMap<String, i32>,
 ) -> Result<()> {
-    // The `condition` rule is now `( expr )`, so we get the inner `expr`.
     let expr_pair = condition.into_inner().next().unwrap();
 
-    // Check if the expression is a comparison
     let mut inner_expr = expr_pair.clone().into_inner();
-    let left_pair = inner_expr.next();
-    let op_pair = inner_expr.next();
+    let left_pair  = inner_expr.next();
+    let op_pair    = inner_expr.next();
     let right_pair = inner_expr.next();
 
     if let (Some(left), Some(op), Some(right)) = (left_pair, op_pair, right_pair) {
-        // It's a comparison expression like `i < 10`
-        let left_val = eval_expr(left, &symbols.variables)?;
-        let right_val = eval_expr(right, &symbols.variables)?;
-
-        if let (FluxValue::Int(l), FluxValue::Int(r)) = (left_val, right_val) {
-            text_section.push_str(&format!("    mov rax, {}\n", l));
-            text_section.push_str(&format!("    cmp rax, {}\n", r));
+        // --- LEFT operand ---
+        let left_str = left.as_str().trim();
+        if let Some(&offset) = var_offsets.get(left_str) {
+            text_section.push_str(&format!("    mov rax, [rbp-{}]\n", offset));
+        } else if let Ok(val) = eval_expr(left, &symbols.variables) {
+            match val {
+                FluxValue::Int(n) => text_section.push_str(&format!("    mov rax, {}\n", n)),
+                _ => bail!("Condition operand must be integer"),
+            }
+        } else {
+            bail!("Unknown left operand in condition: {}", left_str);
         }
 
+        // --- RIGHT operand ---
+        let right_str = right.as_str().trim();
+        if let Some(&offset) = var_offsets.get(right_str) {
+            text_section.push_str(&format!("    cmp rax, [rbp-{}]\n", offset));
+        } else if let Ok(val) = eval_expr(right, &symbols.variables) {
+            match val {
+                FluxValue::Int(n) => text_section.push_str(&format!("    cmp rax, {}\n", n)),
+                _ => bail!("Condition operand must be integer"),
+            }
+        } else {
+            bail!("Unknown right operand in condition: {}", right_str);
+        }
+
+        // --- Jump based on operator ---
         let jump_op = match op.as_str() {
             "==" => "jne",
             "!=" => "je",
-            "<" => "jge",
-            ">" => "jle",
+            "<"  => "jge",
+            ">"  => "jle",
             "<=" => "jg",
             ">=" => "jl",
-            _ => bail!("Unsupported operator in condition: {}", op.as_str()),
+            _    => bail!("Unsupported operator in condition: {}", op.as_str()),
         };
         text_section.push_str(&format!("    {} {}\n", jump_op, label_false));
 
     } else {
-        // It's a single value expression like `if (my_bool)` or `if (0)`
-        let val = eval_expr(expr_pair, &symbols.variables)?;
-        if let FluxValue::Int(i) = val {
-            text_section.push_str(&format!("    mov rax, {}\n", i));
-            text_section.push_str("    cmp rax, 0\n");
-            text_section.push_str(&format!("    je {}\n", label_false)); // Jump if false (zero)
+        // Single boolean / variable condition: if (flag)
+        let val_str = expr_pair.as_str().trim();
+        if let Some(&offset) = var_offsets.get(val_str) {
+            text_section.push_str(&format!("    cmp qword [rbp-{}], 0\n", offset));
+            text_section.push_str(&format!("    je {}\n", label_false));
+        } else if let Ok(val) = eval_expr(expr_pair, &symbols.variables) {
+            match val {
+                FluxValue::Int(n) => {
+                    text_section.push_str(&format!("    mov rax, {}\n", n));
+                    text_section.push_str("    cmp rax, 0\n");
+                    text_section.push_str(&format!("    je {}\n", label_false));
+                }
+                _ => bail!("Condition must evaluate to an integer"),
+            }
         } else {
-            bail!("Unsupported condition type: expression does not evaluate to an integer");
+            bail!("Cannot evaluate condition: {}", val_str);
         }
     }
 
