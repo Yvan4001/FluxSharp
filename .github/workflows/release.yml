@@ -1,6 +1,9 @@
 name: 🚀 Release Workflow
 
 on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags (v1.0.0, v1.0.1, etc.)
   workflow_dispatch:
     inputs:
       version:
