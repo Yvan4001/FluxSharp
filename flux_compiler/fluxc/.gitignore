@@ -1,7 +1,8 @@
-# WASM Build Output
+# Rust/WASM Build Output
 pkg/
 target/
 node_modules/
+Cargo.lock
 
 # IDE
 .vscode/
@@ -16,7 +17,8 @@ Thumbs.db
 
 # Build artifacts
 *.o
-*.asm
 *.wasm
+# Note: Do NOT ignore *.asm here - runtime.asm is source code
+
 *.wasm.map
 

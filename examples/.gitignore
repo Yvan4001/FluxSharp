@@ -1,0 +1,13 @@
+# Examples Generated Files
+# Keep source files, ignore build outputs
+
+# Compiled outputs
+*.o                    # Object files
+*_prog                 # Compiled test executables
+examples/*             # Ignore generated examples
+hello                  # Compiled hello world
+!*.fsh                 # Keep FluxSharp source files
+
+# Build artifacts
+*.tmp
+*.bak
