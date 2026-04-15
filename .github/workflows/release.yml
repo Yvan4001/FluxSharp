@@ -1,0 +1,139 @@
+name: 🚀 Release Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (X.Y.Z format)'
+        required: true
+        type: string
+      release_type:
+        description: 'Release type'
+        required: true
+        default: 'stable'
+        type: choice
+        options:
+          - stable
+          - alpha
+          - beta
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm binutils
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          source $HOME/.cargo/env
+
+      - name: Validate version format
+        run: |
+          if [[ ! "${{ inputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "❌ Invalid version format: ${{ inputs.version }}"
+            exit 1
+          fi
+          echo "✅ Version format valid: ${{ inputs.version }}"
+
+      - name: Update version in Cargo.toml
+        run: |
+          sed -i 's/^version = ".*"/version = "${{ inputs.version }}"/' flux_compiler/Cargo.toml
+          sed -i 's/^version = ".*"/version = "${{ inputs.version }}"/' flux_compiler/fluxc/Cargo.toml
+
+      - name: Update .toolversions
+        run: |
+          mkdir -p .
+          echo "flux=${{ inputs.version }}" > .toolversions
+
+      - name: Build release package
+        run: |
+          source $HOME/.cargo/env
+          chmod +x create_release.sh
+          ./create_release.sh ${{ inputs.version }} ./releases
+
+      - name: Generate release notes
+        run: |
+          cat > RELEASE_NOTES_v${{ inputs.version }}.md << 'EOF'
+          # FluxSharp v${{ inputs.version }}
+          
+          **Release Type**: ${{ inputs.release_type }}  
+          **Release Date**: $(date +%Y-%m-%d)
+          
+          ## ✨ Features
+          - New features and improvements
+          
+          ## 🐛 Bug Fixes
+          - Bug fixes and patches
+          
+          ## 📋 Changelog
+          See [CHANGELOG.md](./CHANGELOG.md) for detailed changes.
+          
+          ---
+          **Installation**: Extract fluxsharp-v${{ inputs.version }}-linux-x64.tar.gz
+          EOF
+
+      - name: Create Git tag
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add -A
+          git commit -m "Release v${{ inputs.version }} (${{ inputs.release_type }})" || true
+          
+          if [ "${{ inputs.release_type }}" == "alpha" ]; then
+            TAG="v${{ inputs.version }}-alpha"
+          elif [ "${{ inputs.release_type }}" == "beta" ]; then
+            TAG="v${{ inputs.version }}-beta"
+          else
+            TAG="v${{ inputs.version }}"
+          fi
+          
+          git tag -a "$TAG" -m "Release $TAG" || true
+          git push origin "$TAG" || true
+
+      - name: Create or update release branch
+        run: |
+          if [ "${{ inputs.release_type }}" == "alpha" ]; then
+            BRANCH="alpha"
+          elif [ "${{ inputs.release_type }}" == "beta" ]; then
+            BRANCH="beta"
+          else
+            BRANCH="main"
+          fi
+          
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          # Create/update release branch
+          git checkout -B "$BRANCH" 2>/dev/null || git checkout "$BRANCH"
+          git merge --allow-unrelated-histories main 2>/dev/null || true
+          git push origin "$BRANCH" 2>/dev/null || true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ inputs.release_type == 'alpha' && format('v{0}-alpha', inputs.version) || inputs.release_type == 'beta' && format('v{0}-beta', inputs.version) || format('v{0}', inputs.version) }}
+          name: FluxSharp v${{ inputs.version }} (${{ inputs.release_type }})
+          body_path: RELEASE_NOTES_v${{ inputs.version }}.md
+          files: |
+            releases/fluxsharp-v${{ inputs.version }}-linux-x64.tar.gz
+            releases/fluxsharp-v${{ inputs.version }}-linux-x64.zip
+            releases/fluxsharp-v${{ inputs.version }}-linux-x64-CHECKSUMS.txt
+          prerelease: ${{ inputs.release_type != 'stable' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: fluxsharp-release-${{ inputs.version }}
+          path: releases/

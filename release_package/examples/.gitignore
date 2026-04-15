@@ -1,0 +1,7 @@
+# Generated example binaries
+# Keep .fsh source files only
+*_prog
+*.o
+*.asm
+hello
+!*.fsh
