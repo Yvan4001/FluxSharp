@@ -1,0 +1,3 @@
+# Pre-compiled object files
+# These are generated during release build, not source files
+*.o

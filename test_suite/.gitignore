@@ -1,0 +1,12 @@
+# Test Suite Generated Files
+# Keep source files, ignore build outputs
+
+# Compiled outputs
+*.o                    # Object files
+*_prog                 # Compiled test executables
+!*.fsh                 # Keep FluxSharp source files
+!*.asm                 # Keep assembly source files
+
+# Build artifacts
+*.tmp
+*.bak

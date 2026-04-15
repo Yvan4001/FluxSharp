@@ -1,0 +1,13 @@
+# Release Package Generated Files
+# Keep source files, ignore build outputs
+
+# Compiled binaries
+bin/fluxc              # Generated compiler binary
+lib/*.o                # Generated object files
+examples/*_prog        # Generated test executables
+examples/*.o           # Generated object files
+examples/*.asm         # Generated assembly (generated ones)
+
+# Build artifacts
+*.tmp
+.DS_Store
