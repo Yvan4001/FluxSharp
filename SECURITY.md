@@ -9,7 +9,6 @@ FluxSharp is committed to building a secure programming language and compiler. S
 | Version | Status | Support Until |
 |---------|--------|----------------|
 | 1.0.x   | Active | 2027-04-21    |
-| 0.1.x   | LTS    | 2026-10-21    |
 
 Security updates are provided for all supported versions. We recommend always using the latest stable release.
 
