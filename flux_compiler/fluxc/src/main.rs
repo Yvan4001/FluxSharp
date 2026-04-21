@@ -13,6 +13,7 @@ pub mod exception_handler;
 
 use crate::advanced_security::{validate_input_path, validate_output_path, validate_file_size};
 use crate::bounds_checker::{eval_expr, compile_condition};
+use crate::error_handler::SourceMap;
 use crate::exception_handler::{SymbolTable, FluxValue, FluxType, FunctionSignature};
 
 // ===== SECURITY CONSTRAINTS =====
@@ -24,12 +25,13 @@ const MAX_STATEMENTS_PER_BLOCK: usize = 10_000;  // Limit statements to prevent 
 const MAX_EXPRESSION_DEPTH: usize = 100;  // Limit recursion depth
 #[allow(dead_code)]
 const MAX_OPERATOR_CHAIN: usize = 1_000;  // Limit operators in one expression
-const RUN_TIMEOUT_SECS: u64 = 30;  // 30 seconds max runtime
 #[allow(dead_code)]
-const RUN_MEMORY_LIMIT_MB: u64 = 512;  // 512 MB memory limit
+const RUN_TIMEOUT_SECS: u64 = 30;    // Reserved: max runtime for a future --run subcommand
+#[allow(dead_code)]
+const RUN_MEMORY_LIMIT_MB: u64 = 512; // Reserved: memory cap for a future --run subcommand
 
 
-// --- 1. CONFIGURATION DU PARSEUR PEST ---
+// --- Pest parser configuration ---
 #[derive(PestDeriveParser)]
 #[grammar = "flux_grammar.pest"]
 pub struct FluxParser;
@@ -382,6 +384,8 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
     text_section.push_str(&format!("; === Compiled from {:?} by fluxc ===\n", source_path));
     text_section.push_str("extern _fsh_print_str\n");
     text_section.push_str("extern _fsh_print_int\n");
+    text_section.push_str("extern _fsh_print_float\n");
+    text_section.push_str("extern _fsh_print_double\n");
     text_section.push_str("extern _fsh_string_length\n\n");
 
     for pair in file.into_inner() {
@@ -574,9 +578,13 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
                 });
 
                     if let Some(block) = inner.find(|p| p.as_rule() == Rule::block) {
-                        // --- C. Commentaire source pour la signature ---
+                        // --- Source comment for function signature ---
                         if let Some(line) = source_lines.get(line_start.saturating_sub(1)) {
-                            text_section.push_str(&format!("\n; --- {} ---\n", line.trim()));
+                            text_section.push_str(&format!(
+                                "\n; FluxSharp:{} | {}\n",
+                                line_start,
+                                line.trim()
+                            ));
                         }
 
                         let label = safe_func_label(&func_name);
@@ -618,12 +626,14 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
     let mut asm = String::new();
     asm.push_str(&format!("; ============================\n"));
     asm.push_str(&format!("; Flux# compiled from {:?}\n", source_path));
-    asm.push_str(&format!("; fluxc v0.1.0\n"));
+    asm.push_str(&format!("; fluxc v1.1.0\n"));
     asm.push_str(&format!("; ============================\n\n"));
 
     // Declare external symbols from runtime
     asm.push_str("extern _fsh_print_str\n");
     asm.push_str("extern _fsh_print_int\n");
+    asm.push_str("extern _fsh_print_float\n");
+    asm.push_str("extern _fsh_print_double\n");
     asm.push_str("extern _fsh_string_length\n");
     asm.push_str("extern _fsh_abs\n");
     asm.push_str("extern _fsh_max\n");
@@ -664,7 +674,7 @@ fn compile_expr(
     unique_id: &mut usize,
     data_section: &mut String,
 ) -> Result<()> {
-    let mut inner = expr_pair.into_inner();
+    let mut inner = expr_pair.clone().into_inner();
     let first = match inner.next() {
         Some(p) => p,
         None => {
@@ -756,10 +766,9 @@ fn compile_expr(
                     match op.as_str() {
                         "+" => text_section.push_str("    add rax, rbx\n"),
                         "-" => {
-                            text_section.push_str("    sub rbx, rax\n");
-                            text_section.push_str("    mov rax, rbx\n");
+                            text_section.push_str("    sub rax, rcx\n");
                         }
-                        "*" => text_section.push_str("    imul rax, rbx\n"),
+                        "*" => text_section.push_str("    imul rax, rcx\n"),
                         "/" => {
                             text_section.push_str("    mov rdx, 0\n");
                             text_section.push_str("    mov rcx, rax\n");
@@ -777,6 +786,38 @@ fn compile_expr(
                 match val {
                     FluxValue::Int(n) => text_section.push_str(&format!("    mov rax, {}\n", n)),
                     _ => {}
+                }
+            } else {
+                let raw = expr_pair.as_str().trim();
+                if let Some(&offset) = var_offsets.get(raw) {
+                    if let Some(t) = symbols.variable_types.get(raw) {
+                        if t == "float" {
+                            text_section.push_str(&format!("    mov eax, dword [rbp-{}]\n", offset));
+                        } else {
+                            text_section.push_str(&format!("    mov rax, qword [rbp-{}]\n", offset));
+                        }
+                    } else {
+                        text_section.push_str(&format!("    mov rax, qword [rbp-{}]\n", offset));
+                    }
+                } else if let Ok(n) = raw.parse::<i64>() {
+                    text_section.push_str(&format!("    mov rax, {}\n", n));
+                } else if raw.ends_with(".ToString()") {
+                    let var_name = raw.replace(".ToString()", "");
+                    if let Some(&offset) = var_offsets.get(&var_name) {
+                        if let Some(t) = symbols.variable_types.get(&var_name) {
+                            if t == "float" {
+                                text_section.push_str(&format!("    mov eax, dword [rbp-{}]\n", offset));
+                            } else if t == "double" {
+                                text_section.push_str(&format!("    mov rax, qword [rbp-{}]\n", offset));
+                            } else {
+                                text_section.push_str(&format!("    mov rax, qword [rbp-{}]\n", offset));
+                            }
+                        } else {
+                            text_section.push_str(&format!("    mov rax, qword [rbp-{}]\n", offset));
+                        }
+                    } else if let Ok(n) = var_name.parse::<i64>() {
+                        text_section.push_str(&format!("    mov rax, {}\n", n));
+                    }
                 }
             }
         }
@@ -832,7 +873,10 @@ fn compile_block_with_loop_context(
         let stmt_span = statement.as_span();
         let stmt_line = content[..stmt_span.start()].lines().count();
         if let Some(src_line) = source_lines.get(stmt_line.saturating_sub(1)) {
-            text_section.push_str(&format!("\n    ; --- {} ---\n", src_line.trim()));
+            text_section.push_str(&format!(
+                "\n{}\n",
+                SourceMap::debug_comment(stmt_line, src_line)
+            ));
         }
 
         match statement.as_rule() {
@@ -1183,7 +1227,7 @@ fn compile_block_with_loop_context(
                                     // Expression is complex, compile it
                                     let mut temp_text_section = String::new();
                                     if compile_expr(
-                                        arg_pair,
+                                        arg_pair.clone(),
                                         symbols,
                                         var_offsets,
                                         &mut temp_text_section,
@@ -1194,7 +1238,29 @@ fn compile_block_with_loop_context(
                                     {
                                         text_section.push_str(&temp_text_section);
                                         text_section.push_str("    mov rdi, rax\n");
-                                        text_section.push_str("    call _fsh_print_int\n");
+
+                                        // Try to infer type of the expression to call correct print
+                                        let raw_expr = arg_pair.as_str().trim();
+                                        let base_var = if raw_expr.ends_with(".ToString()") {
+                                            raw_expr.replace(".ToString()", "")
+                                        } else {
+                                            raw_expr.to_string()
+                                        };
+
+                                        text_section.push_str(&format!("    ; DEBUG print infer: raw='{}' base='{}' type={:?}\n", raw_expr, base_var, symbols.variable_types.get(&base_var)));
+
+                                        if let Some(t) = symbols.variable_types.get(&base_var) {
+                                            match t.as_str() {
+                                                "float" => text_section.push_str("    call _fsh_print_float\n"),
+                                                "double" => text_section.push_str("    call _fsh_print_double\n"),
+                                                "string" => text_section.push_str("    call _fsh_print_str\n"),
+                                                _ => text_section.push_str("    call _fsh_print_int\n"),
+                                            }
+                                        } else if raw_expr.contains("\"") {
+                                            text_section.push_str("    call _fsh_print_str\n");
+                                        } else {
+                                            text_section.push_str("    call _fsh_print_int\n");
+                                        }
                                     } else {
                                         eprintln!("⚠️  WARNING: Complex expression not fully supported in function arguments for '{}'", callee);
                                         text_section.push_str(&format!("    ; ❌ ERROR: Complex expression not supported in argument for {}\n", callee));
@@ -1786,8 +1852,7 @@ fn compile_block_with_loop_context(
                                                 text_section.push_str("    add rax, rcx\n");
                                             }
                                             "-" => {
-                                                text_section.push_str("    sub rbx, rax\n");
-                                                text_section.push_str("    mov rax, rbx\n");
+                                                text_section.push_str("    sub rax, rcx\n");
                                             }
                                             "*" => {
                                                 text_section.push_str("    imul rax, rcx\n");
@@ -1836,6 +1901,9 @@ fn compile_block_with_loop_context(
                         } else if expr_str.contains(".") && expr_str.contains("(") {
                             // Method call - already handled in variable_decl
                             text_section.push_str("    ; Return value from method call in rax\n");
+                        } else {
+                            // Basic function calls like pow(2, 3) etc end up here.
+                            text_section.push_str("    ; Dynamic return value assumed in rax\n");
                         }
                     }
                 }
@@ -1908,30 +1976,33 @@ fn main() -> Result<()> {
 
             // Assemble with NASM
             let obj_path = asm_path.with_extension("o");
-            let nasm_status = std::process::Command::new("nasm")
+            let nasm_out = std::process::Command::new("nasm")
                 .args(&["-f", "elf64", "-o"])
                 .arg(&obj_path)
                 .arg(&asm_path)
-                .status()
+                .output()
                 .context("Failed to run NASM assembler")?;
 
-            if !nasm_status.success() {
+            if !nasm_out.status.success() {
+                let stderr = String::from_utf8_lossy(&nasm_out.stderr);
+                eprintln!("{}", SourceMap::map_nasm_error(&asm_output, &stderr));
                 bail!("NASM failed for {:?}", asm_path);
             }
             eprintln!("🔨 Assembled: {:?}", obj_path);
 
-            // Assemble runtime
+            // Assemble runtime (runtime.asm is not user-authored, no source mapping needed)
             let runtime_asm = "flux_compiler/fluxc/runtime/runtime.asm";
             let runtime_obj = "flux_compiler/fluxc/runtime/runtime.o";
-            let nasm_status = std::process::Command::new("nasm")
+            let runtime_out = std::process::Command::new("nasm")
                 .args(&["-f", "elf64", "-o"])
                 .arg(runtime_obj)
                 .arg(runtime_asm)
-                .status()
+                .output()
                 .context("Failed to assemble runtime")?;
 
-            if !nasm_status.success() {
-                eprintln!("⚠️  Linked with warnings: {:?}", output.as_ref().unwrap_or(&input));
+            if !runtime_out.status.success() {
+                let stderr = String::from_utf8_lossy(&runtime_out.stderr);
+                eprintln!("⚠️  Runtime assembly warning:\n{}", stderr.trim());
             } else {
                 eprintln!("🔨 Assembled runtime: {}", runtime_obj);
             }

@@ -1,38 +1,40 @@
-// Séparateurs (espaces, retours à la ligne, commentaires)
+// ─── Separators (whitespace, newlines, comments) ───────────────────────────
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 COMMENT    = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" | "//" ~ (!"\n" ~ ANY)* }
 
-// Identifiants et Littéraux
-ident = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
-hex_literal = @{ "0x" ~ ASCII_HEX_DIGIT+ }
-bin_literal = @{ "0b" ~ ("0" | "1")+ }
-oct_literal = @{ "0o" ~ ('0'..'7')+ }
-dec_literal = @{ ASCII_DIGIT+ }
-float_literal = @{ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ ("f" | "F") }
+// ─── Identifiers and Literals ───────────────────────────────────────────────
+ident          = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+hex_literal    = @{ "0x" ~ ASCII_HEX_DIGIT+ }
+bin_literal    = @{ "0b" ~ ("0" | "1")+ }
+oct_literal    = @{ "0o" ~ ('0'..'7')+ }
+dec_literal    = @{ ASCII_DIGIT+ }
+float_literal  = @{ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ ("f" | "F") }
 double_literal = @{ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ (("e" | "E") ~ ("+" | "-")? ~ ASCII_DIGIT+)? }
-int_literal = @{ hex_literal | bin_literal | oct_literal | dec_literal }
-bool_literal = @{ "true" | "false" }
-null_literal = @{ "null" }
+int_literal    = @{ hex_literal | bin_literal | oct_literal | dec_literal }
+bool_literal   = @{ "true" | "false" }
+null_literal   = @{ "null" }
 string_literal = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
-char_literal = @{ "'" ~ (!"'" ~ ANY)* ~ "'" }
+char_literal   = @{ "'" ~ (!"'" ~ ANY)* ~ "'" }
 
-// Types primitifs
+// ─── Primitive Types ────────────────────────────────────────────────────────
 type_ident = { "int" | "uint" | "long" | "float" | "double" | "ulong" | "byte" | "string" | "bool" | "void" }
 
-// Keywords
+// ─── Keywords ───────────────────────────────────────────────────────────────
 async_keyword = { "async" }
 await_keyword = { "await" }
-new_keyword = { "new" }
+new_keyword   = { "new" }
 
-// Operators
-bitwise_op = { "&" | "|" | "^" | "<<" | ">>" }
-logical_op = { "&&" | "||" }
+// ─── Operators ──────────────────────────────────────────────────────────────
+bitwise_op    = { "&" | "|" | "^" | "<<" | ">>" }
+logical_op    = { "&&" | "||" }
 assignment_op = { "=" | "+=" | "-=" }
-increment_op = { "++" | "--" }
+increment_op  = { "++" | "--" }
 
-// Expressions - proper operator precedence hierarchy
+// ─── Expression Hierarchy (highest to lowest precedence) ────────────────────
+
 unary_op = { "+" | "-" | "!" }
 
+// Primary: literals, grouped expressions, and identifiers
 primary = {
     bool_literal
     | null_literal
@@ -45,142 +47,202 @@ primary = {
     | ident
 }
 
+// Unary: optional unary operator applied to a postfix expression
 unary = {
     unary_op? ~ postfix
 }
 
+// Postfix: function calls, array indexing, member access
 postfix = {
     primary ~ (
-        "(" ~ (expr ~ ("," ~ expr)*)? ~ ")"    // Function call
-        | "[" ~ expr ~ "]"                      // Array access
-        | "." ~ ident                           // Member access
+        "(" ~ (expr ~ ("," ~ expr)*)? ~ ")"    // function call:   foo(args)
+        | "[" ~ expr ~ "]"                      // array access:    arr[i]
+        | "." ~ ident                           // member access:   obj.field
     )*
 }
 
+// Multiplication, division, modulo
 multiplication = {
     unary ~ (("*" | "/" | "%") ~ unary)*
 }
 
+// Addition and subtraction
 addition = {
     multiplication ~ (("+" | "-") ~ multiplication)*
 }
 
+// Relational comparison (single, optional)
 comparison = {
     addition ~ (comparison_op ~ addition)?
 }
 
+// Logical AND
 logical_and = {
     comparison ~ ("&&" ~ comparison)*
 }
 
+// Logical OR (lowest precedence binary operator)
 logical_or = {
     logical_and ~ ("||" ~ logical_and)*
 }
 
+// Top-level expression
 expr = { logical_or }
 
+// Comparison operators — longest tokens listed first to avoid prefix ambiguity
 comparison_op = { "==" | "!=" | "<=" | ">=" | "<" | ">" }
 
+// ─── Object Instantiation ───────────────────────────────────────────────────
 new_expr = {
     new_keyword ~ ident ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")"
 }
 
-// Déclaration de constante
+// ─── Declarations ───────────────────────────────────────────────────────────
+
+// Compile-time constant: const int MAX = 100;
 const_decl = { "const" ~ type_ident ~ ident ~ "=" ~ expr ~ ";" }
 
-// Déclaration de variable
-variable_decl = { 
+// Variable declaration with optional initializer: int x = 42;
+variable_decl = {
     (type_ident | ident) ~ ident ~ ("=" ~ (new_expr | expr))? ~ ";"
 }
 
-parameter = { (type_ident | ident) ~ ident }
+// ─── Functions ──────────────────────────────────────────────────────────────
+
+parameter  = { (type_ident | ident) ~ ident }
 param_list = { parameter ~ ("," ~ parameter)* }
 
+// Function body: either arrow shorthand (=> expr) or a full block
 function_body = _{ "=>" ~ (block | statement) | block }
 
+// Standalone function (not inside a class or struct)
 function = {
-    !"class" ~ !"struct" ~ "public"? ~ "static"? ~ "private"? ~ async_keyword? ~ (type_ident | ident) ~ ident ~ "(" ~ param_list? ~ ")" ~ function_body
+    !"class" ~ !"struct"
+    ~ "public"? ~ "static"? ~ "private"? ~ async_keyword?
+    ~ (type_ident | ident) ~ ident
+    ~ "(" ~ param_list? ~ ")"
+    ~ function_body
 }
 
+// ─── Block ──────────────────────────────────────────────────────────────────
 block = { "{" ~ statement* ~ "}" }
 
-// Size expression
+// ─── Arrays ─────────────────────────────────────────────────────────────────
+
+// Size expression used in array type annotations: int[10], int[2*4]
 size_expr = { int_literal ~ (("*" | "+") ~ int_literal)* }
 
-// Array declaration
+// Standalone array declaration: int[10] arr;
 array_decl = { (type_ident | ident) ~ "[" ~ size_expr ~ "]" ~ ident ~ ";" }
 
-// Array access statement
+// Array element access used inside expressions: arr[i]
 array_access = { ident ~ "[" ~ expr ~ "]" }
 
-// Attribute
+// ─── Attributes ─────────────────────────────────────────────────────────────
+// Used for struct/class decorators: [Align(8)], [Packed]
 attribute = { "[" ~ ident ~ ("(" ~ int_literal ~ ")")? ~ "]" }
 
-// Struct field
+// ─── Structs ────────────────────────────────────────────────────────────────
+
+// A single field inside a struct: int[4] buffer; or int count;
 struct_field = { (type_ident | ident) ~ ("[" ~ size_expr ~ "]")? ~ ident ~ ";" }
 
 struct_def = {
-    attribute? ~ "public"? ~ "static"? ~ "private"? ~ "struct" ~ ident ~ "{" ~ struct_field* ~ "}"
+    attribute?
+    ~ "public"? ~ "static"? ~ "private"?
+    ~ "struct" ~ ident
+    ~ "{" ~ struct_field* ~ "}"
 }
 
-// Class definition
-class_property = { ("public" | "private")? ~ (type_ident | ident) ~ ("[" ~ size_expr ~ "]")? ~ ident ~ ("=" ~ expr)? ~ ";" }
-class_method = { ("public" | "private")? ~ async_keyword? ~ (type_ident | ident) ~ ident ~ "(" ~ param_list? ~ ")" ~ function_body }
-class_constructor = { "public" ~ ident ~ "(" ~ param_list? ~ ")" ~ function_body }
+// ─── Classes ────────────────────────────────────────────────────────────────
+
+// Class field with optional visibility and initializer: public int count = 0;
+class_property = {
+    ("public" | "private")?
+    ~ (type_ident | ident) ~ ("[" ~ size_expr ~ "]")? ~ ident
+    ~ ("=" ~ expr)? ~ ";"
+}
+
+// Class method: public int Add(int a, int b) { ... }
+class_method = {
+    ("public" | "private")? ~ async_keyword?
+    ~ (type_ident | ident) ~ ident
+    ~ "(" ~ param_list? ~ ")"
+    ~ function_body
+}
+
+// Constructor: public MyClass(int x) { ... }
+class_constructor = {
+    "public" ~ ident ~ "(" ~ param_list? ~ ")" ~ function_body
+}
 
 class_def = {
-    attribute? ~ "public"? ~ "static"? ~ "private"? ~ "class" ~ ident ~ (":" ~ ident)? ~ "{" ~ (class_property | class_method | class_constructor)* ~ "}"
+    attribute?
+    ~ "public"? ~ "static"? ~ "private"?
+    ~ "class" ~ ident ~ (":" ~ ident)?    // optional inheritance: class Foo : Bar
+    ~ "{" ~ (class_property | class_method | class_constructor)* ~ "}"
 }
 
-// Condition - just the expression
+// ─── Control Flow Conditions ────────────────────────────────────────────────
+
+// Condition is a plain expression; parentheses are part of the enclosing statement
 condition = { expr }
 
-increment = { ident ~ ("++" | "--" | (assignment_op ~ expr)) }
+// ─── Increment / Decrement ──────────────────────────────────────────────────
+increment      = { ident ~ ("++" | "--" | (assignment_op ~ expr)) }
 increment_stmt = { ident ~ increment_op ~ ";" }
 
-// For loop increment - supports both i++ and i = i + 1, without trailing semicolon
+// For-loop increment: supports i++, i--, and i = i + 1 (no trailing semicolon)
 for_increment = {
     ident ~ "++"
     | ident ~ "--"
     | ident ~ assignment_op ~ expr
 }
 
-// Assignment statement - handles: x = 5, obj.prop = 5, arr[0] = 5
-// Order matters in PEG: try longest match first
-assignment_stmt = { 
+// ─── Assignment ─────────────────────────────────────────────────────────────
+// Longest match first to avoid ambiguity between arr[i]=v, obj.p=v, and x=v
+assignment_stmt = {
     (
-        ident ~ "[" ~ expr ~ "]" ~ assignment_op ~ expr    // arr[0] = 42 (array access)
-        | ident ~ "." ~ ident ~ assignment_op ~ expr       // obj.prop = 42 (member access)
-        | ident ~ assignment_op ~ expr                      // x = 42 (simple)
+        ident ~ "[" ~ expr ~ "]" ~ assignment_op ~ expr    // array element:  arr[i] = v
+        | ident ~ "." ~ ident ~ assignment_op ~ expr       // member access:  obj.prop = v
+        | ident ~ assignment_op ~ expr                      // simple var:     x = v
     ) ~ ";"
 }
 
+// ─── For Loop ───────────────────────────────────────────────────────────────
+// Initializer (no semicolon terminator — the semicolons are in for_loop itself)
 for_init = { (type_ident | ident) ~ ident ~ ("=" ~ expr)? }
 
 for_loop = {
-    "for" ~ "(" ~ for_init ~ ";" ~ condition ~ ";" ~ for_increment? ~ ")" ~ block
+    "for" ~ "("
+    ~ for_init ~ ";"        // init:      int i = 0
+    ~ condition ~ ";"       // condition: i < 10
+    ~ for_increment?        // increment: i++ or i = i + 1
+    ~ ")" ~ block
 }
 
+// ─── While Loop ─────────────────────────────────────────────────────────────
 while_loop = {
     "while" ~ "(" ~ condition ~ ")" ~ block
 }
 
+// ─── If / Else ──────────────────────────────────────────────────────────────
 else_part = { "else" ~ (if_stmt | block) }
-if_stmt = {
-    "if" ~ "(" ~ condition ~ ")" ~ block ~ else_part?
-}
+if_stmt   = { "if" ~ "(" ~ condition ~ ")" ~ block ~ else_part? }
 
-return_stmt = { "return" ~ expr? ~ ";" }
-break_stmt = { "break" ~ ";" }
+// ─── Other Statements ───────────────────────────────────────────────────────
+return_stmt   = { "return" ~ expr? ~ ";" }
+break_stmt    = { "break" ~ ";" }
 continue_stmt = { "continue" ~ ";" }
 
-// Function call statement
+// Function call as a statement (result discarded): foo(); obj.bar();
 function_call = { ident ~ ("." ~ ident)? ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" ~ ";" }
 
-// Await statement
+// Async call statement: await fetch(url);
 await_stmt = { await_keyword ~ ident ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" ~ ";" }
 
-// Statement rule
+// ─── Statement Dispatch ─────────────────────────────────────────────────────
+// Order matters: more specific rules must appear before more general ones
 statement = _{
     for_loop
     | while_loop
@@ -190,15 +252,17 @@ statement = _{
     | continue_stmt
     | await_stmt
     | const_decl
-    | variable_decl
-    | array_decl
-    | increment_stmt
+    | variable_decl     // must come after const_decl
+    | array_decl        // must come after variable_decl
+    | increment_stmt    // must come before assignment_stmt (i++ vs i = ...)
     | assignment_stmt
     | function_call
 }
 
-// Using directive for file imports
+// ─── File Structure ─────────────────────────────────────────────────────────
+
+// Import directive: using "math_helper.fsh";
 using_stmt = { "using" ~ string_literal ~ ";" }
 
-// File root - Only classes and structs allowed (no global functions)
+// File root — only top-level declarations allowed (no bare statements)
 file = { SOI ~ using_stmt* ~ (const_decl | struct_def | class_def)* ~ EOI }
