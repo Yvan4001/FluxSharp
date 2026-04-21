@@ -46,7 +46,7 @@ The following behaviors are unacceptable in all spaces (GitHub issues, pull requ
 If you experience or witness unacceptable behavior, or have any other concerns:
 
 1. **Document the incident** - Note the date, location, individuals involved, and what occurred
-2. **Report privately** - Email the project maintainers at: [project-contact@example.com]
+2. **Report privately** - Email the project maintainers at: contact@sivagames.com
 3. **Be detailed** - Provide as much context as possible to help us understand the situation
 4. **Keep it confidential** - Your report will be handled with discretion
 
