@@ -310,7 +310,6 @@ fn load_imported_file(file_path: &str, source_path: &PathBuf, symbols: &mut Symb
                             &mut stack_offset,
                             true,
                         );
-                        text_section.push_str("    mov rsp, rbp\n    pop rbp\n    ret\n\n");
                     }
                 }
             }
@@ -792,7 +791,7 @@ fn compile_expr(
                 if let Some(&offset) = var_offsets.get(raw) {
                     if let Some(t) = symbols.variable_types.get(raw) {
                         if t == "float" {
-                            text_section.push_str(&format!("    mov eax, dword [rbp-{}]\n", offset));
+                            text_section.push_str(&format!("    mov rax, qword [rbp-{}]\n", offset));
                         } else {
                             text_section.push_str(&format!("    mov rax, qword [rbp-{}]\n", offset));
                         }
@@ -806,7 +805,7 @@ fn compile_expr(
                     if let Some(&offset) = var_offsets.get(&var_name) {
                         if let Some(t) = symbols.variable_types.get(&var_name) {
                             if t == "float" {
-                                text_section.push_str(&format!("    mov eax, dword [rbp-{}]\n", offset));
+                                text_section.push_str(&format!("    mov rax, qword [rbp-{}]\n", offset));
                             } else if t == "double" {
                                 text_section.push_str(&format!("    mov rax, qword [rbp-{}]\n", offset));
                             } else {
@@ -926,9 +925,9 @@ fn compile_block_with_loop_context(
                                     let label = format!("float_{}", *unique_id);
                                     *unique_id += 1;
                                     let float_bits = f.to_bits();
-                                    data_section.push_str(&format!("{}: dd 0x{:x}\n", label, float_bits));
+                                    data_section.push_str(&format!("{}: dq 0x{:x}\n", label, float_bits));
                                     text_section.push_str(&format!(
-                                        "    mov eax, [rel {}]\n    mov dword [rbp-{}], eax\n",
+                                        "    mov rax, [rel {}]\n    mov qword [rbp-{}], rax\n",
                                         label, *stack_offset
                                     ));
                                 }
@@ -1108,9 +1107,9 @@ fn compile_block_with_loop_context(
                                         let label = format!("float_{}", *unique_id);
                                         *unique_id += 1;
                                         let float_bits = f.to_bits();
-                                        data_section.push_str(&format!("{}: dd 0x{:x}\n", label, float_bits));
+                                        data_section.push_str(&format!("{}: dq 0x{:x}\n", label, float_bits));
                                         text_section.push_str(&format!(
-                                            "    mov eax, [rel {}]\n    mov dword [rbp-{}], eax\n",
+                                            "    mov rax, [rel {}]\n    mov qword [rbp-{}], rax\n",
                                             label, *stack_offset
                                         ));
                                     }
@@ -1881,8 +1880,8 @@ fn compile_block_with_loop_context(
                                 let label = format!("float_{}", *unique_id);
                                 *unique_id += 1;
                                 let float_bits = f.to_bits();
-                                data_section.push_str(&format!("{}: dd 0x{:x}\n", label, float_bits));
-                                text_section.push_str(&format!("    movd xmm0, [rel {}]\n", label));
+                                data_section.push_str(&format!("{}: dq 0x{:x}\n", label, float_bits));
+                                text_section.push_str(&format!("    movq xmm0, [rel {}]\n", label));
                             }
                             FluxValue::Str(text) => {
                                 let label = format!("str_{}", *unique_id);
@@ -1909,6 +1908,7 @@ fn compile_block_with_loop_context(
                 }
                 // Add epilogue
                 text_section.push_str("    mov rsp, rbp\n    pop rbp\n    ret\n\n");
+                return Ok(());
             }
 
             _ => {}

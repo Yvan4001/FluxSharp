@@ -98,12 +98,7 @@ _fsh_print_float:
     push rbp
     mov rbp, rsp
     sub rsp, 40
-    ; Convert 32-bit float bits to double
-    mov eax, edi
-    movd xmm0, eax
-    cvtss2sd xmm0, xmm0
-    movsd [rsp], xmm0
-    ; Format using double-to-string helper
+    mov [rsp], rdi
     lea rsi, [rel fbuffer]
     movsd xmm0, [rsp]
     call _simple_double_to_str
