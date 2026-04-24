@@ -2,10 +2,12 @@
 # Keep source files, ignore build outputs
 
 # Compiled outputs
-*.o                    # Object files
-*_prog                 # Compiled test executables
-!*.fsh                 # Keep FluxSharp source files
-!*.asm                 # Keep assembly source files
+*.o
+*_prog
+*.asm
+
+# Keep explicitly
+!*.fsh
 
 # Build artifacts
 *.tmp
