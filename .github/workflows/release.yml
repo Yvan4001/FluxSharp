@@ -33,16 +33,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      # ✅ Fix 1 — Résoudre version ET release_type selon le déclencheur
       - name: Resolve version and release type
         id: vars
         run: |
           if [ "${{ github.event_name }}" == "push" ]; then
-            # Déclenché par un tag : extraire la version depuis le tag
-            RAW_TAG="${{ github.ref_name }}"         # ex: v1.0.1-alpha
-            VERSION="${RAW_TAG#v}"                    # ex: 1.0.1-alpha
-            
-            # Détecter le release type depuis le suffixe du tag
+            RAW_TAG="${{ github.ref_name }}"
+            VERSION="${RAW_TAG#v}"
+
             if [[ "$VERSION" == *"-alpha" ]]; then
               RELEASE_TYPE="alpha"
               VERSION="${VERSION%-alpha}"
@@ -53,12 +50,10 @@ jobs:
               RELEASE_TYPE="stable"
             fi
           else
-            # Déclenché manuellement via workflow_dispatch
             VERSION="${{ inputs.version }}"
             RELEASE_TYPE="${{ inputs.release_type }}"
           fi
 
-          # Valider le format X.Y.Z
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "❌ Invalid version format: '$VERSION'"
             exit 1
@@ -67,11 +62,17 @@ jobs:
           echo "✅ Version: $VERSION"
           echo "✅ Release type: $RELEASE_TYPE"
 
-          # Exporter pour les étapes suivantes
-          echo "version=$VERSION"       >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION"           >> "$GITHUB_OUTPUT"
           echo "release_type=$RELEASE_TYPE" >> "$GITHUB_OUTPUT"
 
-          # Ajouter à la fin du run, après les autres outputs
+          if [ "$RELEASE_TYPE" == "alpha" ]; then
+            echo "tag=v${VERSION}-alpha" >> "$GITHUB_OUTPUT"
+          elif [ "$RELEASE_TYPE" == "beta" ]; then
+            echo "tag=v${VERSION}-beta"  >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=v${VERSION}"       >> "$GITHUB_OUTPUT"
+          fi
+
           if [ "$RELEASE_TYPE" != "stable" ]; then
             echo "prerelease=true"  >> "$GITHUB_OUTPUT"
           else
@@ -109,8 +110,6 @@ jobs:
           RELEASE_TYPE="${{ steps.vars.outputs.release_type }}"
           DATE=$(date +%Y-%m-%d)
 
-          # ✅ Fix 2 — Ne pas utiliser heredoc avec des variables GitHub Actions dedans
-          # Les ${{ }} ne sont pas expandés dans un heredoc shell
           cat > "RELEASE_NOTES_v${VERSION}.md" << EOF
           # FluxSharp v${VERSION}
 
@@ -145,7 +144,7 @@ jobs:
             releases/fluxsharp-v${{ steps.vars.outputs.version }}-linux-x64.tar.gz
             releases/fluxsharp-v${{ steps.vars.outputs.version }}-linux-x64.zip
             releases/fluxsharp-v${{ steps.vars.outputs.version }}-linux-x64-CHECKSUMS.txt
-          prerelease: ${{ steps.vars.outputs.prerelease }}   # ← string "true"/"false"
+          prerelease: ${{ steps.vars.outputs.prerelease }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
