@@ -81,8 +81,8 @@ fn detect_common_errors(content: &str) -> Option<String> {
             && !trimmed_no_comment.starts_with("if")
         {
             // Check if this looks like a statement that should end with semicolon
-            if !trimmed_no_comment.contains("if ") && !trimmed_no_comment.contains("else") && !trimmed_no_comment.contains("for ")
-                && !trimmed_no_comment.contains("while ") && !trimmed_no_comment.contains("class ") && !trimmed_no_comment.contains("struct ")
+            if !trimmed_no_comment.contains("if") && !trimmed_no_comment.contains("else") && !trimmed_no_comment.contains("for")
+                && !trimmed_no_comment.contains("while") && !trimmed_no_comment.contains("class ") && !trimmed_no_comment.contains("struct ")
                 && !trimmed_no_comment.contains("function ") && !trimmed_no_comment.contains("=>")
             {
                 return Some(format!(
@@ -159,10 +159,15 @@ fn detect_common_errors(content: &str) -> Option<String> {
 }
 
 /// Load and process an imported file
-fn load_imported_file(file_path: &str, source_path: &PathBuf, symbols: &mut SymbolTable) -> Result<(String, String)> {
+fn load_imported_file(file_path: &str, source_path: &PathBuf, symbols: &mut SymbolTable, imported_files: &mut std::collections::HashSet<PathBuf>) -> Result<(String, String)> {
     // Resolve relative path from the source directory
     let source_dir = source_path.parent().unwrap_or_else(|| std::path::Path::new("."));
     let imported_path = source_dir.join(file_path);
+    
+    if imported_files.contains(&imported_path) {
+        return Ok((String::new(), String::new()));
+    }
+    imported_files.insert(imported_path.clone());
     
     // Validate the imported file path
     validate_input_path(&imported_path)?;
@@ -298,6 +303,17 @@ fn load_imported_file(file_path: &str, source_path: &PathBuf, symbols: &mut Symb
                         text_section.push_str("    push rbp\n    mov rbp, rsp\n");
                         let mut var_offsets = HashMap::new();
                         let mut stack_offset = 0i32;
+                        
+                        // Setup parameters from registers to stack
+                        let regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+                        for (i, (p_name, p_type)) in params.iter().enumerate() {
+                            stack_offset += 8; // 8 bytes per parameter
+                            var_offsets.insert(p_name.clone(), stack_offset);
+                            symbols.variable_types.insert(p_name.clone(), format!("{:?}", p_type));
+                            let reg = if i < regs.len() { regs[i] } else { "rdi" }; // simplistic handling
+                            text_section.push_str(&format!("    push {}\n", reg));
+                        }
+                        
                         let _ = compile_block(
                             block,
                             &imported_content,
@@ -322,6 +338,9 @@ fn load_imported_file(file_path: &str, source_path: &PathBuf, symbols: &mut Symb
 
 /// Compile a single .fsh source into NASM x86_64 assembly string
 fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
+    let mut imported_files = std::collections::HashSet::new();
+    imported_files.insert(source_path.clone());
+    
     let source_lines: Vec<&str> = content.lines().collect();
 
     // First, check for common syntax errors
@@ -380,12 +399,7 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
     let mut unique_id: usize = 0;
 
     // Header comment
-    text_section.push_str(&format!("; === Compiled from {:?} by fluxc ===\n", source_path));
-    text_section.push_str("extern _fsh_print_str\n");
-    text_section.push_str("extern _fsh_print_int\n");
-    text_section.push_str("extern _fsh_print_float\n");
-    text_section.push_str("extern _fsh_print_double\n");
-    text_section.push_str("extern _fsh_string_length\n\n");
+    text_section.push_str(&format!("; === Compiled from {:?} by fluxc ===\n\n", source_path));
 
     for pair in file.into_inner() {
         match pair.as_rule() {
@@ -402,7 +416,11 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
                     };
                     
                     // Load and process the imported file
-                    match load_imported_file(file_path, source_path, &mut symbols) {
+                    let imported_path = source_path.parent().unwrap_or_else(|| std::path::Path::new(".")).join(&file_path);
+                    if imported_files.contains(&imported_path) {
+                        continue;
+                    }
+                    match load_imported_file(file_path, source_path, &mut symbols, &mut imported_files) {
                         Ok((data_sec, text_sec)) => {
                             data_section.push_str(&data_sec);
                             text_section.push_str(&text_sec);
@@ -538,6 +556,16 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
                         let mut var_offsets = HashMap::new();
                         let mut stack_offset = 0i32;
                         
+                        // Setup parameters from registers to stack
+                        let regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+                        for (i, (p_name, p_type)) in params.iter().enumerate() {
+                            stack_offset += 8; // 8 bytes per parameter
+                            var_offsets.insert(p_name.clone(), stack_offset);
+                            symbols.variable_types.insert(p_name.clone(), format!("{:?}", p_type));
+                            let reg = if i < regs.len() { regs[i] } else { "rdi" }; // simplistic handling
+                            text_section.push_str(&format!("    push {}\n", reg));
+                        }
+                        
                         // Set current class context
                         let old_class = symbols.current_class.clone();
                         symbols.current_class = Some(name.to_string());
@@ -625,7 +653,7 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
     let mut asm = String::new();
     asm.push_str(&format!("; ============================\n"));
     asm.push_str(&format!("; Flux# compiled from {:?}\n", source_path));
-    asm.push_str(&format!("; fluxc v1.1.0\n"));
+    asm.push_str(&format!("; fluxc v1.0.2\n"));
     asm.push_str(&format!("; ============================\n\n"));
 
     // Declare external symbols from runtime
@@ -763,15 +791,13 @@ fn compile_expr(
                     text_section.push_str("    pop rbx\n"); // Restore LHS to rbx
 
                     match op.as_str() {
-                        "+" => text_section.push_str("    add rax, rbx\n"),
-                        "-" => {
-                            text_section.push_str("    sub rax, rcx\n");
-                        }
-                        "*" => text_section.push_str("    imul rax, rcx\n"),
+                        "+" => text_section.push_str("    add rbx, rax\n    mov rax, rbx\n"),
+                        "-" => text_section.push_str("    sub rbx, rax\n    mov rax, rbx\n"),
+                        "*" => text_section.push_str("    imul rbx, rax\n    mov rax, rbx\n"),
                         "/" => {
-                            text_section.push_str("    mov rdx, 0\n");
                             text_section.push_str("    mov rcx, rax\n");
                             text_section.push_str("    mov rax, rbx\n");
+                            text_section.push_str("    cqo\n");
                             text_section.push_str("    idiv rcx\n");
                         }
                         _ => {}
@@ -800,6 +826,52 @@ fn compile_expr(
                     }
                 } else if let Ok(n) = raw.parse::<i64>() {
                     text_section.push_str(&format!("    mov rax, {}\n", n));
+                } else if raw.contains('+') || raw.contains('-') || raw.contains('*') || raw.contains('/') {
+                    // Fallback for simple binary math expressions because compile_expr doesn't walk pest tree fully
+                    let operators = ['+', '-', '*', '/'];
+                    let mut found_op = None;
+                    let mut op_idx = 0;
+                    for (i, c) in raw.chars().enumerate() {
+                        if operators.contains(&c) {
+                            found_op = Some(c);
+                            op_idx = i;
+                            break;
+                        }
+                    }
+                    if let Some(op) = found_op {
+                        let left = raw[..op_idx].trim();
+                        let right = raw[op_idx+1..].trim();
+                        
+                        // Compile left into rax
+                        if let Some(&offset) = var_offsets.get(left) {
+                            text_section.push_str(&format!("    mov rax, qword [rbp-{}]\n", offset));
+                        } else if let Ok(n) = left.parse::<i64>() {
+                            text_section.push_str(&format!("    mov rax, {}\n", n));
+                        }
+                        
+                        text_section.push_str("    push rax\n");
+                        
+                        // Compile right into rax
+                        if let Some(&offset) = var_offsets.get(right) {
+                            text_section.push_str(&format!("    mov rax, qword [rbp-{}]\n", offset));
+                        } else if let Ok(n) = right.parse::<i64>() {
+                            text_section.push_str(&format!("    mov rax, {}\n", n));
+                        }
+                        
+                        text_section.push_str("    pop rbx\n"); // rbx holds left
+                        match op {
+                            '+' => text_section.push_str("    add rbx, rax\n    mov rax, rbx\n"),
+                            '-' => text_section.push_str("    sub rbx, rax\n    mov rax, rbx\n"),
+                            '*' => text_section.push_str("    imul rbx, rax\n    mov rax, rbx\n"),
+                            '/' => {
+                                text_section.push_str("    mov rcx, rax\n");
+                                text_section.push_str("    mov rax, rbx\n");
+                                text_section.push_str("    cqo\n");
+                                text_section.push_str("    idiv rcx\n");
+                            }
+                            _ => {}
+                        }
+                    }
                 } else if raw.ends_with(".ToString()") {
                     let var_name = raw.replace(".ToString()", "");
                     if let Some(&offset) = var_offsets.get(&var_name) {
@@ -1450,7 +1522,7 @@ fn compile_block_with_loop_context(
                             text_section.push_str(&format!("    sub rax, {}\n", offset));
                             text_section.push_str("    mov rdx, rbx\n");
                             text_section.push_str("    imul rdx, 8\n");
-                            text_section.push_str("    sub rax, rdx\n"); // Corrected from add to sub
+                            text_section.push_str("    sub rax, rdx\n");
                             text_section.push_str(&format!("    mov qword [rax], {}\n", n));
                         }
                     } else {
@@ -1762,6 +1834,8 @@ fn compile_block_with_loop_context(
 
                 text_section.push_str(&format!("    jmp {}\n", label_start));
                 text_section.push_str(&format!("{}:\n", label_end));
+                text_section.push_str("    add rsp, 8\n");
+                var_offsets.remove(&var_name);
             }
 
             Rule::while_loop => {
@@ -1803,110 +1877,33 @@ fn compile_block_with_loop_context(
             Rule::return_stmt => {
                 let mut return_inner = statement.into_inner();
                 if let Some(expr_pair) = return_inner.next() {
-                    let expr_str = expr_pair.as_str().trim();
-                    
-                    // Check if it's a simple arithmetic expression with a parameter (like "x * 2")
-                    if expr_str.contains("*") && !expr_str.contains("+") && !expr_str.contains("-") && !expr_str.contains("/") {
-                        // Simple multiplication like "x * 2"
-                        if let Some(mult_pos) = expr_str.find('*') {
-                            let left = expr_str[..mult_pos].trim();
-                            let right = expr_str[mult_pos + 1..].trim();
-                            
-                            if left == "x" || left == "n" || left == "val" {
-                                // Left operand is a parameter in rdi
-                                if let Ok(multiplier) = right.parse::<i64>() {
-                                    // Generate: mov rax, rdi; imul rax, multiplier
-                                    text_section.push_str("    mov rax, rdi\n");
-                                    text_section.push_str(&format!("    imul rax, {}\n", multiplier));
-                                    text_section.push_str("    mov rsp, rbp\n    pop rbp\n    ret\n");
-                                    return Ok(());
-                                } else if let Ok(value) = right.parse::<i64>() {
-                                    text_section.push_str("    mov rax, rdi\n");
-                                    text_section.push_str(&format!("    imul rax, {}\n", value));
-                                    text_section.push_str("    mov rsp, rbp\n    pop rbp\n    ret\n");
-                                    return Ok(());
-                                }
-                            }
-                        }
-                    }
-                    
-                    // Check if it's an operation with two parameters (like "a + b", "a - b", etc)
-                    if expr_str.contains("+") || expr_str.contains("-") || expr_str.contains("*") || expr_str.contains("/") {
-                        let operators = vec!["+", "-", "*", "/"];
-                        for op in &operators {
-                            if expr_str.contains(op) && expr_str.matches(op).count() == 1 {
-                                if let Some(op_pos) = expr_str.find(op) {
-                                    let left = expr_str[..op_pos].trim();
-                                    let right = expr_str[op_pos + op.len()..].trim();
-                                    
-                                    // Check if both are simple parameters (a, b, x, y, etc)
-                                    if (left == "a" || left == "b" || left == "x" || left == "y") &&
-                                       (right == "a" || right == "b" || right == "x" || right == "y") {
-                                        // Handle two-parameter operations
-                                        text_section.push_str("    mov rax, rdi\n");  // Load first param (a or x)
-                                        text_section.push_str("    mov rcx, rsi\n");  // Load second param (b or y)
-                                        
-                                        match *op {
-                                            "+" => {
-                                                text_section.push_str("    add rax, rcx\n");
-                                            }
-                                            "-" => {
-                                                text_section.push_str("    sub rax, rcx\n");
-                                            }
-                                            "*" => {
-                                                text_section.push_str("    imul rax, rcx\n");
-                                            }
-                                            "/" => {
-                                                text_section.push_str("    cqo\n");  // Sign extend for division
-                                                text_section.push_str("    idiv rcx\n");
-                                            }
-                                            _ => {}
-                                        }
-                                        text_section.push_str("    mov rsp, rbp\n    pop rbp\n    ret\n");
-                                        return Ok(());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    // Try to evaluate at compile-time
+                    // Essai 1 : évaluation statique (constantes)
                     if let Ok(val) = eval_expr(expr_pair.clone(), &symbols.variables) {
                         match val {
-                            FluxValue::Int(n) => {
-                                text_section.push_str(&format!("    mov rax, {}\n", n));
-                            }
+                            FluxValue::Int(n) => text_section.push_str(&format!("    mov rax, {}\n", n)),
                             FluxValue::Float(f) => {
-                                let label = format!("float_{}", *unique_id);
-                                *unique_id += 1;
-                                let float_bits = f.to_bits();
-                                data_section.push_str(&format!("{}: dq 0x{:x}\n", label, float_bits));
-                                text_section.push_str(&format!("    movq xmm0, [rel {}]\n", label));
+                                let label = format!("float_{}", *unique_id); *unique_id += 1;
+                                let bits = f.to_bits();
+                                data_section.push_str(&format!("{}: dq 0x{:x}\n", label, bits));
+                                text_section.push_str(&format!("    mov rax, [rel {}]\n", label));
                             }
-                            FluxValue::Str(text) => {
-                                let label = format!("str_{}", *unique_id);
-                                *unique_id += 1;
-                                let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
-                                data_section.push_str(&format!("{}: db \"{}\", 0\n", label, escaped));
+                            FluxValue::Str(s) => {
+                                let label = format!("str_{}", *unique_id); *unique_id += 1;
+                                data_section.push_str(&format!("{}: db \"{}\", 0\n", label, s));
                                 text_section.push_str(&format!("    lea rax, [rel {}]\n", label));
                             }
                         }
                     } else {
-                        // Try to evaluate as variable or method call
-                        let expr_str = expr_pair.as_str().trim();
-                        if let Some(offset) = var_offsets.get(expr_str) {
-                            // Return variable value
+                        // Essai 2 : variable sur la pile
+                        let raw = expr_pair.as_str().trim();
+                        if let Some(&offset) = var_offsets.get(raw) {
                             text_section.push_str(&format!("    mov rax, [rbp-{}]\n", offset));
-                        } else if expr_str.contains(".") && expr_str.contains("(") {
-                            // Method call - already handled in variable_decl
-                            text_section.push_str("    ; Return value from method call in rax\n");
                         } else {
-                            // Basic function calls like pow(2, 3) etc end up here.
-                            text_section.push_str("    ; Dynamic return value assumed in rax\n");
+                            // Essai 3 : compiler l'expression dynamiquement
+                            compile_expr(expr_pair, symbols, var_offsets, text_section, unique_id, data_section)?;
                         }
                     }
                 }
-                // Add epilogue
                 text_section.push_str("    mov rsp, rbp\n    pop rbp\n    ret\n\n");
                 return Ok(());
             }
@@ -2044,6 +2041,7 @@ fn safe_func_label(name: &str) -> String {
         "mov", "cmp", "jmp", "ret", "call", "push", "pop",
         "inc", "dec", "neg", "nop", "hlt", "int",
         "lea", "je", "jne", "jl", "jg", "jle", "jge",
+        "sys", "db", "dq", "resq", "section", "global", "extern",
     ];
     
     if NASM_RESERVED.contains(&name) {
