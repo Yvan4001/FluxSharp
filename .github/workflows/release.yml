@@ -71,13 +71,11 @@ jobs:
           echo "version=$VERSION"       >> "$GITHUB_OUTPUT"
           echo "release_type=$RELEASE_TYPE" >> "$GITHUB_OUTPUT"
 
-          # Construire le tag final
-          if [ "$RELEASE_TYPE" == "alpha" ]; then
-            echo "tag=v${VERSION}-alpha" >> "$GITHUB_OUTPUT"
-          elif [ "$RELEASE_TYPE" == "beta" ]; then
-            echo "tag=v${VERSION}-beta"  >> "$GITHUB_OUTPUT"
+          # Ajouter à la fin du run, après les autres outputs
+          if [ "$RELEASE_TYPE" != "stable" ]; then
+            echo "prerelease=true"  >> "$GITHUB_OUTPUT"
           else
-            echo "tag=v${VERSION}"       >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Install dependencies
@@ -147,7 +145,7 @@ jobs:
             releases/fluxsharp-v${{ steps.vars.outputs.version }}-linux-x64.tar.gz
             releases/fluxsharp-v${{ steps.vars.outputs.version }}-linux-x64.zip
             releases/fluxsharp-v${{ steps.vars.outputs.version }}-linux-x64-CHECKSUMS.txt
-          prerelease: ${{ steps.vars.outputs.release_type != 'stable' }}
+          prerelease: ${{ steps.vars.outputs.prerelease }}   # ← string "true"/"false"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
