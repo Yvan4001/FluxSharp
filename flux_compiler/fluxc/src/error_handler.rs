@@ -3,6 +3,66 @@
 
 use std::fmt;
 
+/// Maps generated ASM line numbers back to the original FluxSharp source positions.
+///
+/// The compiler embeds `; FluxSharp:{line} | {source_text}` comments into the
+/// generated assembly at every statement boundary. When NASM fails, this struct
+/// scans backward from the failing ASM line to find the nearest such comment,
+/// allowing precise source-level error reporting.
+pub struct SourceMap;
+
+impl SourceMap {
+    /// Returns a formatted debug comment to embed in generated ASM.
+    /// `source_line` is 1-based. `source_text` is the trimmed source snippet.
+    pub fn debug_comment(source_line: usize, source_text: &str) -> String {
+        format!("    ; FluxSharp:{} | {}", source_line, source_text.trim())
+    }
+
+    /// Parses a NASM error message and maps the failing ASM line back to the
+    /// original FluxSharp source line using the embedded `; FluxSharp:N` markers.
+    ///
+    /// Returns a user-friendly error string with the mapped source location.
+    pub fn map_nasm_error(asm_content: &str, nasm_stderr: &str) -> String {
+        let mut result = format!("\nNASM Error:\n{}\n", nasm_stderr.trim());
+
+        // NASM error format: "path/to/file.asm:LINE: error: ..."
+        let asm_error_line = nasm_stderr.lines().find_map(|line| {
+            let colon = line.find(':')?;
+            let after_first = &line[colon + 1..];
+            let second_colon = after_first.find(':')?;
+            after_first[..second_colon].trim().parse::<usize>().ok()
+        });
+
+        if let Some(error_line) = asm_error_line {
+            let asm_lines: Vec<&str> = asm_content.lines().collect();
+            let scan_until = error_line.min(asm_lines.len());
+
+            // Scan backward from the error line to find the nearest FluxSharp marker.
+            for asm_line in asm_lines[..scan_until].iter().rev() {
+                if let Some(rest) = asm_line.trim().strip_prefix("; FluxSharp:") {
+                    let mut parts = rest.splitn(2, '|');
+                    let src_line_num = parts.next().and_then(|s| s.trim().parse::<usize>().ok());
+                    let src_text = parts.next().map(|s| s.trim()).unwrap_or("");
+
+                    if let Some(line_num) = src_line_num {
+                        result.push_str(&format!(
+                            "\n  Originated from FluxSharp source line {}",
+                            line_num
+                        ));
+                        if !src_text.is_empty() {
+                            result.push_str(&format!(":\n    > {}", src_text));
+                        }
+                        result.push('\n');
+                    }
+                    break;
+                }
+            }
+        }
+
+        result
+    }
+}
+
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct CompileError {

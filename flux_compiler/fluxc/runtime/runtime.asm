@@ -9,28 +9,39 @@ _start:
     mov rax, 60
     syscall
 ; --- _fsh_print_str ---
+; Prints a null-terminated string to stdout followed by a newline.
+; Input:  rdi = pointer to null-terminated string (null-safe)
+; Security: guards against null pointer; truncates strings longer than 65535 bytes.
 global _fsh_print_str
 _fsh_print_str:
     push rbp
     mov rbp, rsp
+    ; Null pointer guard
+    test rdi, rdi
+    jz .print_str_newline
     mov rcx, rdi
+    mov r8d, 65535          ; max string length guard
 .find_end:
     cmp byte [rcx], 0
     je .end_len
+    dec r8d
+    jz .end_len             ; reached limit: truncate here
     inc rcx
     jmp .find_end
 .end_len:
     mov rdx, rcx
     sub rdx, rdi
+    jz .print_str_newline   ; empty string: skip write, still emit newline
     mov rsi, rdi
+    mov rax, 1              ; write syscall
+    mov rdi, 1              ; stdout
+    syscall
+.print_str_newline:
+    ; Always emit a newline after the string
     mov rax, 1
     mov rdi, 1
-    syscall
-    ; Print newline after string
-    mov rax, 1          ; write syscall
-    mov rdi, 1          ; stdout
     mov rsi, newline
-    mov rdx, 1          ; 1 byte
+    mov rdx, 1
     syscall
     pop rbp
     ret
@@ -81,22 +92,17 @@ _fsh_print_int:
     pop rbp
     ret
 ; --- _fsh_print_float ---
-; Simplified: affiche 3 décimales pour float
+; Prints a 32-bit float value (passed as int bits in edi) with 2 decimal places.
 global _fsh_print_float
 _fsh_print_float:
     push rbp
     mov rbp, rsp
     sub rsp, 40
-    ; Convertir 32-bit float en double
-    mov eax, edi
-    movd xmm0, eax
-    cvtss2sd xmm0, xmm0
-    movsd [rsp], xmm0
-    ; Utiliser la fonction d'affichage double
+    mov [rsp], rdi
     lea rsi, [rel fbuffer]
-    mov rdi, [rsp]
+    movsd xmm0, [rsp]
     call _simple_double_to_str
-    ; Afficher
+    ; Print the formatted buffer
     lea rdi, [rel fbuffer]
     call _fsh_print_str
     add rsp, 40
@@ -259,9 +265,23 @@ _int_to_simple_str:
     pop rbp
     ret
 ; --- _fsh_sqrt ---
+; Computes floor(sqrt(n)) for a 64-bit integer n.
+; Input:  rdi = n (int64)
+; Output: rax = floor(sqrt(n)); returns 0 for negative input.
 global _fsh_sqrt
 _fsh_sqrt:
-    mov rax, rdi
+    push rbp
+    mov rbp, rsp
+    test rdi, rdi
+    js .sqrt_negative        ; n < 0 -> return 0
+    cvtsi2sd xmm0, rdi       ; convert integer to double
+    sqrtsd   xmm0, xmm0      ; compute IEEE 754 square root
+    cvttsd2si rax, xmm0      ; truncate back to integer (== floor for positive)
+    pop rbp
+    ret
+.sqrt_negative:
+    xor rax, rax
+    pop rbp
     ret
 ; --- _fsh_abs ---
 global _fsh_abs
@@ -332,15 +352,20 @@ _fsh_panic_bounds:
 
 global _fsh_string_length
 _fsh_string_length:
-    ; rdi = pointer to null-terminated string
-    ; returns length in rax
+    ; rdi = pointer to null-terminated string (null-safe)
+    ; returns length in rax, or 0 if rdi is null
+    test rdi, rdi
+    jz .str_len_null
     xor rax, rax
-.loop:
+.str_len_loop:
     cmp byte [rdi + rax], 0
-    je  .done
+    je  .str_len_done
     inc rax
-    jmp .loop
-.done:
+    jmp .str_len_loop
+.str_len_done:
+    ret
+.str_len_null:
+    xor rax, rax
     ret
 
 section .bss

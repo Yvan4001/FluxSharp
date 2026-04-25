@@ -4,7 +4,7 @@ set -e
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPILER_DIR="$PROJECT_DIR/flux_compiler"          # ← workspace root
-FLUXC_BIN="$COMPILER_DIR/target/release/fluxc"    # ← binaire ici
+FLUXC_BIN="$COMPILER_DIR/target/release/fluxc"    # ← binary path
 TEST_SCRIPT="$PROJECT_DIR/test.sh"
 
 if [ $# -eq 0 ]; then

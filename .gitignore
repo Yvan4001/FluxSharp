@@ -11,9 +11,9 @@ Cargo.lock
 # ============================================
 # BUILD & COMPILATION OUTPUTS
 # ============================================
-*.o                          # Object files
-program                      # Compiled executables
-/program.asm                 # Only ignore program.asm in root (generated)
+*.o
+program
+/program.asm
 # Keep all source .asm files in subdirectories:
 # ✅ flux_compiler/fluxc/runtime/*.asm (runtime source)
 # ✅ examples/*.asm (example source)
