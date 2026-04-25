@@ -62,21 +62,21 @@ jobs:
           echo "✅ Version: $VERSION"
           echo "✅ Release type: $RELEASE_TYPE"
 
-          echo "version=$VERSION"           >> "$GITHUB_OUTPUT"
-          echo "release_type=$RELEASE_TYPE" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION"               >> "$GITHUB_OUTPUT"
+          echo "release_type=$RELEASE_TYPE"     >> "$GITHUB_OUTPUT"
 
           if [ "$RELEASE_TYPE" == "alpha" ]; then
-            echo "tag=v${VERSION}-alpha" >> "$GITHUB_OUTPUT"
+            echo "tag=v${VERSION}-alpha"        >> "$GITHUB_OUTPUT"
           elif [ "$RELEASE_TYPE" == "beta" ]; then
-            echo "tag=v${VERSION}-beta"  >> "$GITHUB_OUTPUT"
+            echo "tag=v${VERSION}-beta"         >> "$GITHUB_OUTPUT"
           else
-            echo "tag=v${VERSION}"       >> "$GITHUB_OUTPUT"
+            echo "tag=v${VERSION}"              >> "$GITHUB_OUTPUT"
           fi
 
           if [ "$RELEASE_TYPE" != "stable" ]; then
-            echo "prerelease=true"  >> "$GITHUB_OUTPUT"
+            echo "prerelease=true"              >> "$GITHUB_OUTPUT"
           else
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false"             >> "$GITHUB_OUTPUT"
           fi
 
       - name: Install dependencies
@@ -86,23 +86,70 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Update version in Cargo.toml
-        run: |
-          VERSION="${{ steps.vars.outputs.version }}"
-          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" flux_compiler/Cargo.toml
-          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" flux_compiler/fluxc/Cargo.toml
-
       - name: Build Rust compiler
         run: |
           cd flux_compiler
           cargo build --release
-          cp target/release/fluxc ../bin/fluxc
+          echo "✅ Compiler built"
 
-      - name: Build release package
+      - name: Prepare release_package
         run: |
           VERSION="${{ steps.vars.outputs.version }}"
-          chmod +x create_release.sh
-          ./create_release.sh "$VERSION" ./releases
+
+          # 1. Copier le fluxc fraîchement compilé
+          cp flux_compiler/target/release/fluxc release_package/bin/fluxc
+          chmod +x release_package/bin/fluxc
+          echo "✅ fluxc copied"
+
+          # 2. Compiler le runtime.asm sur cette machine CI (pas de .o pré-compilé)
+          nasm -f elf64 \
+            -o release_package/lib/runtime.o \
+            flux_compiler/fluxc/runtime/runtime.asm
+          echo "✅ runtime.o compiled"
+
+          # 3. Nettoyer les artefacts de build
+          # Binaires compilés dans examples/ (garder uniquement les .fsh)
+          find release_package/examples/ -type f ! -name "*.fsh" -delete
+          echo "✅ Example binaries removed"
+
+          # Fichiers .asm intermédiaires dans include/
+          find release_package/include/ -name "*.asm" -delete
+          echo "✅ Intermediate .asm files removed"
+
+          # Tous les .gitignore
+          find release_package/ -name ".gitignore" -delete
+          echo "✅ .gitignore files removed"
+
+          # 4. Vérifier le contenu final
+          echo ""
+          echo "📋 Final release_package contents:"
+          find release_package/ -type f | sort
+
+      - name: Create archives
+        run: |
+          VERSION="${{ steps.vars.outputs.version }}"
+          RELEASE_NAME="fluxsharp-v${VERSION}-linux-x64"
+
+          mkdir -p releases/
+
+          # Créer le .tar.gz
+          tar -czf "releases/${RELEASE_NAME}.tar.gz" \
+            --transform "s|^release_package|${RELEASE_NAME}|" \
+            release_package/
+          echo "✅ ${RELEASE_NAME}.tar.gz ($(du -sh releases/${RELEASE_NAME}.tar.gz | cut -f1))"
+
+          # Créer le .zip
+          cp -r release_package /tmp/${RELEASE_NAME}
+          cd /tmp && zip -qr "$GITHUB_WORKSPACE/releases/${RELEASE_NAME}.zip" "${RELEASE_NAME}/"
+          rm -rf /tmp/${RELEASE_NAME}
+          cd "$GITHUB_WORKSPACE"
+          echo "✅ ${RELEASE_NAME}.zip ($(du -sh releases/${RELEASE_NAME}.zip | cut -f1))"
+
+          # Générer les checksums
+          cd releases/
+          sha256sum "${RELEASE_NAME}.tar.gz" "${RELEASE_NAME}.zip" > "${RELEASE_NAME}-CHECKSUMS.txt"
+          echo "✅ Checksums generated"
+          cat "${RELEASE_NAME}-CHECKSUMS.txt"
 
       - name: Generate release notes
         run: |
@@ -116,22 +163,32 @@ jobs:
           **Release Type**: ${RELEASE_TYPE}
           **Release Date**: ${DATE}
 
-          ## ✨ Features
-          - New features and improvements
+          ## 📦 Package Contents
 
-          ## 🐛 Bug Fixes
-          - Bug fixes and patches
+          \`\`\`
+          fluxsharp-v${VERSION}-linux-x64/
+          ├── bin/fluxc          ← Compiler
+          ├── lib/runtime.o      ← Runtime (compiled for linux-x64)
+          ├── include/core.fsh   ← Standard library
+          ├── docs/              ← Documentation
+          ├── examples/          ← Example .fsh files
+          ├── build.sh           ← Build script
+          ├── README.md
+          └── INSTALL.md
+          \`\`\`
 
-          ## 📋 Changelog
-          See [CHANGELOG.md](./CHANGELOG.md) for detailed changes.
+          ## 🚀 Installation
 
-          ---
-          **Installation**:
           \`\`\`bash
           tar -xzf fluxsharp-v${VERSION}-linux-x64.tar.gz
           cd fluxsharp-v${VERSION}-linux-x64
           ./build.sh examples/hello.fsh
           \`\`\`
+
+          ## 📋 Requirements
+          - Linux x86_64
+          - nasm
+          - ld (binutils)
           EOF
 
       - name: Create GitHub Release
