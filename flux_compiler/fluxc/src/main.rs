@@ -742,13 +742,13 @@ fn compile_expr(
                         let str_val = str_inner.as_str();
                         let label = format!("str_{}", *unique_id);
                         *unique_id += 1;
-                        data_section.push_str(&format!("{}: db \"{}\", 0\n", label, str_val));
+                        emit_nasm_string(&label, str_val, data_section);
                         text_section.push_str(&format!("    lea rax, [rel {}]\n", label));
                     } else {
                         // Empty string literal
                         let label = format!("str_{}", *unique_id);
                         *unique_id += 1;
-                        data_section.push_str(&format!("{}: db \"\", 0\n", label));
+                        data_section.push_str(&format!("{}: db 0\n", label));
                         text_section.push_str(&format!("    lea rax, [rel {}]\n", label));
                     }
                 }
@@ -963,7 +963,12 @@ fn compile_block_with_loop_context(
                     if let Some(bracket_pos) = var_type_str.find('[') {
                         let size_str = &var_type_str[bracket_pos + 1..var_type_str.find(']').unwrap()];
                         if let Ok(size) = size_str.parse::<i32>() {
-                            let total_size = size * 8; // 8 bytes per element (qword)
+                            if size <= 0 || size > 65536 {
+                                bail!("Array size {} is out of valid range (1..=65536)", size);
+                            }
+                            // size is bounded above, so * 8 cannot overflow i32
+                            let total_size = size.checked_mul(8)
+                                .ok_or_else(|| anyhow::anyhow!("Array size overflow computing total bytes"))?;
                             text_section.push_str(&format!("    sub rsp, {}\n", total_size));
                             *stack_offset += total_size;
                             var_offsets.insert(var_name.clone(), *stack_offset);
@@ -1003,13 +1008,10 @@ fn compile_block_with_loop_context(
                                         label, *stack_offset
                                     ));
                                 }
-                                FluxValue::Str(_) => {
+                                FluxValue::Str(ref s) => {
                                     let label = format!("str_{}", *unique_id);
                                     *unique_id += 1;
-                                    data_section.push_str(&format!(
-                                        "{}: db \"{}\", 0\n",
-                                        label, val
-                                    ));
+                                    emit_nasm_string(&label, s, data_section);
                                     text_section.push_str(&format!(
                                         "    lea rax, [rel {}]\n    mov [rbp-{}], rax\n",
                                         label, *stack_offset
@@ -1106,7 +1108,7 @@ fn compile_block_with_loop_context(
                                                 let string_content = &arg[1..arg.len()-1];
                                                 let label = format!("str_{}", *unique_id);
                                                 *unique_id += 1;
-                                                data_section.push_str(&format!("{}: db \"{}\", 0\n", label, string_content));
+                                                emit_nasm_string(&label, string_content, data_section);
                                                 text_section.push_str(&format!("    lea {}, [rel {}]\n", reg, label));
                                             } else {
                                                 // Unknown - try as variable
@@ -1185,13 +1187,10 @@ fn compile_block_with_loop_context(
                                             label, *stack_offset
                                         ));
                                     }
-                                    FluxValue::Str(_) => {
+                                    FluxValue::Str(ref s) => {
                                         let label = format!("str_{}", *unique_id);
                                         *unique_id += 1;
-                                        data_section.push_str(&format!(
-                                            "{}: db \"{}\", 0\n",
-                                            label, val
-                                        ));
+                                        emit_nasm_string(&label, s, data_section);
                                         text_section.push_str(&format!(
                                             "    lea rax, [rel {}]\n    mov [rbp-{}], rax\n",
                                             label, *stack_offset
@@ -1256,8 +1255,7 @@ fn compile_block_with_loop_context(
                             let str_content = &arg_str[1..arg_str.len()-1];
                             let label = format!("str_{}", *unique_id);
                             *unique_id += 1;
-                            let escaped = str_content.replace("\\", "\\\\").replace("\"", "\\\"");
-                            data_section.push_str(&format!("{}: db \"{}\", 0\n", label, escaped));
+                            emit_nasm_string(&label, str_content, data_section);
                             text_section.push_str(&format!(
                                 "    lea rdi, [rel {}]\n    call _fsh_print_str\n",
                                 label
@@ -1266,11 +1264,10 @@ fn compile_block_with_loop_context(
                             // Try to evaluate as expression
                             match eval_expr(arg_pair.clone(), &symbols.variables) {
                                 Ok(val) => match val {
-                                    FluxValue::Str(text) => {
+                                    FluxValue::Str(ref text) => {
                                         let label = format!("str_{}", *unique_id);
                                         *unique_id += 1;
-                                        let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
-                                        data_section.push_str(&format!("{}: db \"{}\", 0\n", label, escaped));
+                                        emit_nasm_string(&label, text, data_section);
                                         text_section.push_str(&format!(
                                             "    lea rdi, [rel {}]\n    call _fsh_print_str\n",
                                             label
@@ -1283,11 +1280,11 @@ fn compile_block_with_loop_context(
                                         ));
                                     }
                                     FluxValue::Float(f) => {
-                                        // Generate a string literal with the float value
+                                        // Float Display output is all printable ASCII, safe to emit directly
                                         let label = format!("float_{}", *unique_id);
                                         *unique_id += 1;
                                         let formatted = format!("{}", f);
-                                        data_section.push_str(&format!("{}: db \"{}\", 0\n", label, formatted));
+                                        emit_nasm_string(&label, &formatted, data_section);
                                         text_section.push_str(&format!(
                                             "    lea rdi, [rel {}]\n    call _fsh_print_str\n",
                                             label
@@ -1317,8 +1314,6 @@ fn compile_block_with_loop_context(
                                         } else {
                                             raw_expr.to_string()
                                         };
-
-                                        text_section.push_str(&format!("    ; DEBUG print infer: raw='{}' base='{}' type={:?}\n", raw_expr, base_var, symbols.variable_types.get(&base_var)));
 
                                         if let Some(t) = symbols.variable_types.get(&base_var) {
                                             match t.as_str() {
@@ -2031,6 +2026,50 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Converts a string to a valid NASM `db` operand sequence.
+///
+/// NASM does not support backslash escapes inside string literals.
+/// Special bytes (including `"`) must be emitted as numeric byte values.
+///
+/// Returns an empty string for empty input; otherwise a comma-separated
+/// mix of quoted runs and raw byte values, e.g.:
+///   `"hello", 10, "world"` for "hello\nworld"
+fn escape_for_nasm(s: &str) -> String {
+    if s.is_empty() {
+        return String::new();
+    }
+    let mut parts: Vec<String> = Vec::new();
+    let mut run: Vec<u8> = Vec::new();
+
+    for &b in s.as_bytes() {
+        match b {
+            // Printable ASCII, excluding the double-quote delimiter
+            0x20..=0x21 | 0x23..=0x7E => run.push(b),
+            _ => {
+                if !run.is_empty() {
+                    parts.push(format!("\"{}\"", String::from_utf8_lossy(&run)));
+                    run.clear();
+                }
+                parts.push(b.to_string());
+            }
+        }
+    }
+    if !run.is_empty() {
+        parts.push(format!("\"{}\"", String::from_utf8_lossy(&run)));
+    }
+    parts.join(", ")
+}
+
+/// Emit a null-terminated NASM `db` line for a string label.
+fn emit_nasm_string(label: &str, content: &str, data_section: &mut String) {
+    let escaped = escape_for_nasm(content);
+    if escaped.is_empty() {
+        data_section.push_str(&format!("{}: db 0\n", label));
+    } else {
+        data_section.push_str(&format!("{}: db {}, 0\n", label, escaped));
+    }
 }
 
 /// Safe function label generator - avoids NASM mnemonic collisions

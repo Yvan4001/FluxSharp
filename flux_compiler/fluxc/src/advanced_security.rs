@@ -459,13 +459,13 @@ fn process_includes_internal(
                 }
                 included_files.insert(filename.to_string());
                 
+                // Validate file size before reading to prevent memory exhaustion
+                validate_file_size(&include_path)?;
+
                 // Read and include the file
                 eprintln!("📥 Importing: {}", filename);
                 let included_content = fs::read_to_string(&include_path)
                     .with_context(|| format!("Cannot read imported file: {}", filename))?;
-                
-                // Validate file size
-                validate_file_size(&include_path)?;
                 
                 // Recursively process includes in the included file
                 let processed = process_includes_internal(&included_content, base_dir, included_files)?;
