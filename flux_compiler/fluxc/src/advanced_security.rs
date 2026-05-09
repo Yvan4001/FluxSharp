@@ -233,80 +233,74 @@ impl AdvancedSecurityValidator {
 }
 
 pub fn validate_input_path(path: &Path) -> Result<()> {
-    // Check if path contains suspicious patterns
-    let path_str = path.to_string_lossy();
-    
+    // Resolve the canonical path atomically — this resolves all symlinks and
+    // normalises ".." components in a single syscall, eliminating TOCTOU.
+    let canonical = path.canonicalize()
+        .with_context(|| format!("Cannot resolve path (does not exist or permission denied): {:?}", path))?;
+
+    // Guard against ".." surviving in the original string (belt-and-suspenders).
+    let path_str = canonical.to_string_lossy();
     if path_str.contains("..") {
-        bail!("Path traversal detected in input: {:?}", path);
+        bail!("Path traversal detected in input: {:?}", canonical);
     }
-    
-    // Check if it's a symlink (to prevent TOCTOU attacks)
-    if path.is_symlink() {
-        bail!("Symlinks are not allowed: {:?}", path);
+
+    // After canonicalize(), the path is by definition a real file with no symlink
+    // components.  Verify it is a regular file (not a directory, device, etc.).
+    if !canonical.is_file() {
+        bail!("Input path is not a regular file: {:?}", canonical);
     }
-    
-    // Verify it's actually a file
-    if !path.is_file() {
-        bail!("Input path is not a regular file: {:?}", path);
-    }
-    
+
     Ok(())
 }
 
 pub fn validate_output_path(path: &Path) -> Result<()> {
-    // Check for ".." in path which indicates path traversal attempt
+    // Belt-and-suspenders: reject any ".." component before we do anything else.
     let path_str = path.to_string_lossy();
     if path_str.contains("..") {
         bail!("Path traversal detected: {:?} contains '..'", path);
     }
-    
-    // Get the project's root directory, not the current working directory
+
+    // Resolve the project root canonically.
     let project_dir = std::env::var("CARGO_MANIFEST_DIR")
         .map(PathBuf::from)
         .ok()
         .and_then(|p| p.parent().map(|p| p.to_path_buf()))
         .unwrap_or_else(|| PathBuf::from("."));
 
-    // Convert to absolute path
+    let canonical_project = project_dir
+        .canonicalize()
+        .with_context(|| format!("Cannot resolve project directory: {:?}", project_dir))?;
+
+    // Build the absolute path (the output file may not exist yet).
     let absolute_path = if path.is_absolute() {
         path.to_path_buf()
     } else {
-        project_dir.join(path)
+        canonical_project.join(path)
     };
-    
-    // Try to resolve parent for new files
-    let parent = absolute_path.parent().unwrap_or(&absolute_path);
-    
-    // Check that parent exists or can be created
-    if !parent.exists() {
-        // For new files, check that the parent's parent exists
-        if let Some(grandparent) = parent.parent() {
-            if !grandparent.exists() {
-                bail!("Parent directory does not exist: {:?}", parent);
-            }
-        }
-    }
-    
-    // Check path doesn't escape project directory
-    let normalized = match absolute_path.canonicalize() {
-        Ok(canon) => canon,
-        Err(_) => {
-            // If canonicalize fails, it might be because the file doesn't exist yet.
-            // In that case, we rely on the check against the non-canonicalized absolute path.
-            absolute_path.clone()
-        }
-    };
-    
-    let normalized_project_dir = project_dir.canonicalize().unwrap_or(project_dir);
 
-    if !normalized.starts_with(&normalized_project_dir) {
+    // The output file may not exist yet, but its parent directory must.
+    // Canonicalize the parent (which does exist) to resolve all symlinks,
+    // then reconstruct the full path as canonical_parent / filename.
+    let parent = absolute_path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Output path has no parent directory: {:?}", absolute_path))?;
+
+    if !parent.exists() {
+        bail!("Output directory does not exist: {:?}", parent);
+    }
+
+    let canonical_parent = parent
+        .canonicalize()
+        .with_context(|| format!("Cannot resolve output directory: {:?}", parent))?;
+
+    if !canonical_parent.starts_with(&canonical_project) {
         bail!(
-            "Path traversal detected: {:?} is outside allowed project directory {:?}",
-            normalized,
-            normalized_project_dir
+            "Path traversal detected: output directory {:?} is outside project root {:?}",
+            canonical_parent,
+            canonical_project
         );
     }
-    
+
     Ok(())
 }
 
@@ -330,9 +324,84 @@ pub fn validate_file_size(path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
+/// Count non-overlapping occurrences of `needle` in `haystack`, skipping
+/// characters that are inside single-line comments (`//`), block comments
+/// (`/* ... */`), or string literals (`"..."`).
+fn count_outside_comments_and_strings(haystack: &str, needle: &str) -> usize {
+    let chars: Vec<char> = haystack.chars().collect();
+    let n = chars.len();
+    let needle_chars: Vec<char> = needle.chars().collect();
+    let nlen = needle_chars.len();
+
+    let mut count = 0usize;
+    let mut i = 0usize;
+    let mut in_block_comment = false;
+    let mut in_line_comment = false;
+    let mut in_string = false;
+
+    while i < n {
+        // --- state transitions ---
+        if in_block_comment {
+            if i + 1 < n && chars[i] == '*' && chars[i + 1] == '/' {
+                in_block_comment = false;
+                i += 2;
+                continue;
+            }
+            i += 1;
+            continue;
+        }
+        if in_line_comment {
+            if chars[i] == '\n' {
+                in_line_comment = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_string {
+            if chars[i] == '\\' {
+                i += 2; // skip escape sequence
+                continue;
+            }
+            if chars[i] == '"' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        // Check for comment/string openers
+        if i + 1 < n && chars[i] == '/' && chars[i + 1] == '*' {
+            in_block_comment = true;
+            i += 2;
+            continue;
+        }
+        if i + 1 < n && chars[i] == '/' && chars[i + 1] == '/' {
+            in_line_comment = true;
+            i += 2;
+            continue;
+        }
+        if chars[i] == '"' {
+            in_string = true;
+            i += 1;
+            continue;
+        }
+
+        // Check for needle match
+        if i + nlen <= n && chars[i..i + nlen] == needle_chars[..] {
+            count += 1;
+            i += nlen;
+            continue;
+        }
+
+        i += 1;
+    }
+    count
+}
+
 pub fn validate_main_class(content: &str) -> Result<()> {
-    let main_class_count = content.matches("class Main").count();
-    let main_method_count = content.matches("void main()").count() + content.matches("void main ()").count();
+    let main_class_count = count_outside_comments_and_strings(content, "class Main");
+    let main_method_count = count_outside_comments_and_strings(content, "void main()")
+        + count_outside_comments_and_strings(content, "void main ()");
     
     if main_class_count == 0 {
         bail!(
@@ -381,27 +450,41 @@ pub fn validate_main_class(content: &str) -> Result<()> {
     Ok(())
 }
 
+const MAX_INCLUDE_DEPTH: usize = 50;
+
 pub fn process_includes(content: &str, base_dir: &Path) -> Result<String> {
-    let mut included_files = std::collections::HashSet::new();
-    process_includes_internal(content, base_dir, &mut included_files)
+    // Track included files by canonical path to detect cycles regardless of
+    // how the same file is spelled (e.g. "./lib.fsh" vs "lib.fsh").
+    let mut included_canonical: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    process_includes_internal(content, base_dir, &mut included_canonical, 0)
 }
 
 fn process_includes_internal(
     content: &str,
     base_dir: &Path,
-    included_files: &mut std::collections::HashSet<String>,
+    included_canonical: &mut std::collections::HashSet<PathBuf>,
+    depth: usize,
 ) -> Result<String> {
+    if depth > MAX_INCLUDE_DEPTH {
+        bail!(
+            "❌ IMPORT DEPTH EXCEEDED\n\n\
+            Maximum import nesting depth ({}) exceeded.\n\
+            Check for circular or deeply nested imports.\n",
+            MAX_INCLUDE_DEPTH
+        );
+    }
+
     let mut result = String::new();
-    
+
     for line in content.lines() {
         let trimmed = line.trim();
-        
+
         // Check for C# style import/using: using "filename.fsh"; or import "filename.fsh";
         let is_using = trimmed.starts_with("using ") && trimmed.ends_with(";");
         let is_import = trimmed.starts_with("import ") && trimmed.ends_with(";");
         // Check for legacy include directive: // #include "filename.fsh"
         let is_legacy_include = trimmed.starts_with("//") && trimmed.contains("#include") && trimmed.contains("\"");
-        
+
         if is_using || is_import || is_legacy_include {
             // Extract filename from the different formats
             let filename = if let Some(start) = trimmed.find('"') {
@@ -417,7 +500,7 @@ fn process_includes_internal(
             } else {
                 None
             };
-            
+
             if let Some(filename) = filename {
                 // Validate that it's a .fsh file
                 if !filename.ends_with(".fsh") {
@@ -431,10 +514,10 @@ fn process_includes_internal(
                         filename
                     );
                 }
-                
+
                 // Build the path
                 let include_path = base_dir.join(filename);
-                
+
                 // Check if file exists first, before path validation
                 if !include_path.exists() {
                     bail!(
@@ -445,19 +528,24 @@ fn process_includes_internal(
                         include_path
                     );
                 }
-                
-                // Validate path doesn't escape base directory
+
+                // Validate path doesn't escape base directory (also resolves symlinks
+                // and normalises the path, making it safe to canonicalize below).
                 validate_input_path(&include_path)?;
-                
-                // Prevent circular includes
-                if included_files.contains(filename) {
+
+                // Deduplicate by canonical path so that "./lib.fsh" and "lib.fsh"
+                // (or a symlink pointing to the same inode) are treated as one file.
+                let canonical = include_path.canonicalize()
+                    .with_context(|| format!("Cannot resolve import path: {:?}", include_path))?;
+
+                if included_canonical.contains(&canonical) {
                     bail!(
                         "❌ CIRCULAR IMPORT\n\n\
                         Circular import detected: '{}' already imported.\n",
                         filename
                     );
                 }
-                included_files.insert(filename.to_string());
+                included_canonical.insert(canonical);
                 
                 // Validate file size before reading to prevent memory exhaustion
                 validate_file_size(&include_path)?;
@@ -468,7 +556,7 @@ fn process_includes_internal(
                     .with_context(|| format!("Cannot read imported file: {}", filename))?;
                 
                 // Recursively process includes in the included file
-                let processed = process_includes_internal(&included_content, base_dir, included_files)?;
+                let processed = process_includes_internal(&included_content, base_dir, included_canonical, depth + 1)?;
                 result.push_str(&processed);
                 result.push('\n');
                 continue;

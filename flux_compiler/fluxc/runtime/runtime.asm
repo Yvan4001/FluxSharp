@@ -50,6 +50,18 @@ global _fsh_print_int
 _fsh_print_int:
     push rbp
     mov rbp, rsp
+    ; Special-case INT64_MIN: neg rax would overflow back to INT64_MIN.
+    mov rax, 0x8000000000000000
+    cmp rdi, rax
+    jne .print_int_normal
+    mov rax, 1              ; write syscall
+    mov rdi, 1              ; stdout
+    lea rsi, [rel int64_min_str]
+    mov rdx, 21             ; length of "-9223372036854775808\n"
+    syscall
+    pop rbp
+    ret
+.print_int_normal:
     mov rax, rdi
     mov rsi, buffer + 32
     mov byte [rsi], 0
@@ -284,28 +296,49 @@ _fsh_sqrt:
     pop rbp
     ret
 ; --- _fsh_abs ---
+; Input:  rdi = int64
+; Output: rax = |rdi|; saturates to INT64_MAX for INT64_MIN (no defined positive counterpart).
 global _fsh_abs
 _fsh_abs:
     mov rax, rdi
     cmp rax, 0
     jge .abs_end
+    ; Guard INT64_MIN: neg would overflow back to INT64_MIN
+    mov rcx, 0x8000000000000000
+    cmp rax, rcx
+    je  .abs_saturate
     neg rax
+    jmp .abs_end
+.abs_saturate:
+    mov rax, 0x7fffffffffffffff  ; INT64_MAX
 .abs_end:
     ret
 ; --- _fsh_floor ---
+; Input:  rdi = IEEE 754 double bits
+; Output: rax = floor(x) as int64
 global _fsh_floor
 _fsh_floor:
-    mov rax, rdi
+    movq    xmm0, rdi          ; interpret bits as double
+    roundsd xmm0, xmm0, 1     ; round toward -inf
+    cvttsd2si rax, xmm0        ; truncate to int64
     ret
 ; --- _fsh_ceil ---
+; Input:  rdi = IEEE 754 double bits
+; Output: rax = ceil(x) as int64
 global _fsh_ceil
 _fsh_ceil:
-    mov rax, rdi
+    movq    xmm0, rdi          ; interpret bits as double
+    roundsd xmm0, xmm0, 2     ; round toward +inf
+    cvttsd2si rax, xmm0        ; truncate to int64
     ret
 ; --- _fsh_round ---
+; Input:  rdi = IEEE 754 double bits
+; Output: rax = round(x) to nearest int64 (ties to even)
 global _fsh_round
 _fsh_round:
-    mov rax, rdi
+    movq    xmm0, rdi          ; interpret bits as double
+    roundsd xmm0, xmm0, 0     ; round to nearest (ties to even)
+    cvttsd2si rax, xmm0        ; truncate to int64
     ret
 ; --- _fsh_max ---
 global _fsh_max
@@ -326,6 +359,8 @@ _fsh_min:
 .min_end:
     ret
 ; --- _fsh_pow ---
+; Input:  rdi = base (int64), rsi = exponent (int64)
+; Output: rax = base^exponent; on signed overflow, saturates to INT64_MAX.
 global _fsh_pow
 _fsh_pow:
     mov rax, 1
@@ -334,9 +369,13 @@ _fsh_pow:
     jle .pow_end
 .pow_loop:
     imul rax, rdi
+    jo  .pow_overflow       ; signed overflow flag set → saturate
     dec rcx
     cmp rcx, 0
     jg .pow_loop
+    jmp .pow_end
+.pow_overflow:
+    mov rax, 0x7fffffffffffffff  ; INT64_MAX
 .pow_end:
     ret
 
@@ -353,13 +392,16 @@ _fsh_panic_bounds:
 global _fsh_string_length
 _fsh_string_length:
     ; rdi = pointer to null-terminated string (null-safe)
-    ; returns length in rax, or 0 if rdi is null
+    ; returns length in rax (capped at 65535), or 0 if rdi is null
     test rdi, rdi
     jz .str_len_null
     xor rax, rax
+    mov r8d, 65535          ; max scan length (same cap as _fsh_print_str)
 .str_len_loop:
     cmp byte [rdi + rax], 0
     je  .str_len_done
+    dec r8d
+    jz  .str_len_done       ; hit limit: return current count
     inc rax
     jmp .str_len_loop
 .str_len_done:
@@ -369,12 +411,17 @@ _fsh_string_length:
     ret
 
 section .bss
-    buffer resb 40
+    buffer  resb 40
+    ; WARNING: fbuffer and dbuffer are global, non-reentrant scratch buffers.
+    ; They are written by _fsh_print_float/_fsh_print_double via _simple_double_to_str.
+    ; Do NOT call these functions concurrently from multiple threads.
     fbuffer resb 64
     dbuffer resb 64
 section .data
     newline: db 10            ; '\n' character
     bounds_error_msg: db "FATAL: Array index out of bounds", 0
+    ; INT64_MIN literal: neg would overflow, so we emit this directly.
+    int64_min_str: db "-9223372036854775808", 10
     multiplier: dq 1000.0
     million: dq 1000000.0
     hundred: dq 100.0

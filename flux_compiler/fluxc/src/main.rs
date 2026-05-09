@@ -164,13 +164,19 @@ fn load_imported_file(file_path: &str, source_path: &PathBuf, symbols: &mut Symb
     let source_dir = source_path.parent().unwrap_or_else(|| std::path::Path::new("."));
     let imported_path = source_dir.join(file_path);
     
-    if imported_files.contains(&imported_path) {
+    // Validate first so that canonicalize below is guaranteed to succeed.
+    validate_input_path(&imported_path)?;
+
+    // Deduplicate by canonical path so that "./lib.fsh" and "lib.fsh" (or any
+    // symlink spelling of the same inode) are recognised as the same file.
+    let canonical_path = imported_path
+        .canonicalize()
+        .with_context(|| format!("Cannot resolve imported file path: {:?}", imported_path))?;
+
+    if imported_files.contains(&canonical_path) {
         return Ok((String::new(), String::new()));
     }
-    imported_files.insert(imported_path.clone());
-    
-    // Validate the imported file path
-    validate_input_path(&imported_path)?;
+    imported_files.insert(canonical_path);
     
     // Read the imported file
     let imported_content = std::fs::read_to_string(&imported_path)
@@ -303,17 +309,28 @@ fn load_imported_file(file_path: &str, source_path: &PathBuf, symbols: &mut Symb
                         text_section.push_str("    push rbp\n    mov rbp, rsp\n");
                         let mut var_offsets = HashMap::new();
                         let mut stack_offset = 0i32;
-                        
-                        // Setup parameters from registers to stack
+
+                        // Spill integer register parameters to the stack.
+                        // Parameters 1-6 come from the System V AMD64 registers; beyond 6
+                        // they are already on the caller's stack at [rbp+16], [rbp+24], …
+                        // NOTE: `and rsp, -16` must NOT be inserted here — it would create a
+                        // gap between rbp and the first push, corrupting rbp-relative offsets.
                         let regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
                         for (i, (p_name, p_type)) in params.iter().enumerate() {
-                            stack_offset += 8; // 8 bytes per parameter
+                            stack_offset += 8;
                             var_offsets.insert(p_name.clone(), stack_offset);
                             symbols.variable_types.insert(p_name.clone(), format!("{:?}", p_type));
-                            let reg = if i < regs.len() { regs[i] } else { "rdi" }; // simplistic handling
-                            text_section.push_str(&format!("    push {}\n", reg));
+                            if i < regs.len() {
+                                text_section.push_str(&format!("    push {}\n", regs[i]));
+                            } else {
+                                let stack_arg_offset = 16 + (i - regs.len()) * 8;
+                                text_section.push_str(&format!(
+                                    "    mov rax, [rbp+{}]\n    push rax\n",
+                                    stack_arg_offset
+                                ));
+                            }
                         }
-                        
+
                         let _ = compile_block(
                             block,
                             &imported_content,
@@ -555,17 +572,28 @@ fn compile_fsh_to_asm(content: &str, source_path: &PathBuf) -> Result<String> {
                         text_section.push_str("    push rbp\n    mov rbp, rsp\n");
                         let mut var_offsets = HashMap::new();
                         let mut stack_offset = 0i32;
-                        
-                        // Setup parameters from registers to stack
+
+                        // Spill integer register parameters to the stack.
+                        // Parameters 1-6 come from the System V AMD64 registers; beyond 6
+                        // they are already on the caller's stack at [rbp+16], [rbp+24], …
+                        // NOTE: `and rsp, -16` must NOT be inserted here — it would create a
+                        // gap between rbp and the first push, corrupting rbp-relative offsets.
                         let regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
                         for (i, (p_name, p_type)) in params.iter().enumerate() {
-                            stack_offset += 8; // 8 bytes per parameter
+                            stack_offset += 8;
                             var_offsets.insert(p_name.clone(), stack_offset);
                             symbols.variable_types.insert(p_name.clone(), format!("{:?}", p_type));
-                            let reg = if i < regs.len() { regs[i] } else { "rdi" }; // simplistic handling
-                            text_section.push_str(&format!("    push {}\n", reg));
+                            if i < regs.len() {
+                                text_section.push_str(&format!("    push {}\n", regs[i]));
+                            } else {
+                                let stack_arg_offset = 16 + (i - regs.len()) * 8;
+                                text_section.push_str(&format!(
+                                    "    mov rax, [rbp+{}]\n    push rax\n",
+                                    stack_arg_offset
+                                ));
+                            }
                         }
-                        
+
                         // Set current class context
                         let old_class = symbols.current_class.clone();
                         symbols.current_class = Some(name.to_string());
@@ -795,10 +823,18 @@ fn compile_expr(
                         "-" => text_section.push_str("    sub rbx, rax\n    mov rax, rbx\n"),
                         "*" => text_section.push_str("    imul rbx, rax\n    mov rax, rbx\n"),
                         "/" => {
+                            let div_id = *unique_id;
+                            *unique_id += 1;
                             text_section.push_str("    mov rcx, rax\n");
+                            text_section.push_str("    test rcx, rcx\n");
+                            text_section.push_str(&format!("    jz .div_zero_{}\n", div_id));
                             text_section.push_str("    mov rax, rbx\n");
                             text_section.push_str("    cqo\n");
                             text_section.push_str("    idiv rcx\n");
+                            text_section.push_str(&format!("    jmp .div_done_{}\n", div_id));
+                            text_section.push_str(&format!(".div_zero_{}:\n", div_id));
+                            text_section.push_str("    xor rax, rax\n");
+                            text_section.push_str(&format!(".div_done_{}:\n", div_id));
                         }
                         _ => {}
                     }
@@ -864,10 +900,18 @@ fn compile_expr(
                             '-' => text_section.push_str("    sub rbx, rax\n    mov rax, rbx\n"),
                             '*' => text_section.push_str("    imul rbx, rax\n    mov rax, rbx\n"),
                             '/' => {
+                                let div_id = *unique_id;
+                                *unique_id += 1;
                                 text_section.push_str("    mov rcx, rax\n");
+                                text_section.push_str("    test rcx, rcx\n");
+                                text_section.push_str(&format!("    jz .div_zero_{}\n", div_id));
                                 text_section.push_str("    mov rax, rbx\n");
                                 text_section.push_str("    cqo\n");
                                 text_section.push_str("    idiv rcx\n");
+                                text_section.push_str(&format!("    jmp .div_done_{}\n", div_id));
+                                text_section.push_str(&format!(".div_zero_{}:\n", div_id));
+                                text_section.push_str("    xor rax, rax\n");
+                                text_section.push_str(&format!(".div_done_{}:\n", div_id));
                             }
                             _ => {}
                         }
@@ -1381,18 +1425,17 @@ fn compile_block_with_loop_context(
                                 FluxValue::Int(n) => {
                                     args_code.push_str(&format!("    mov {}, {}\n", reg, n));
                                 }
-                                FluxValue::Str(text) => {
+                                FluxValue::Str(ref text) => {
                                     let label = format!("str_{}", *unique_id);
                                     *unique_id += 1;
-                                    let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
-                                    data_section.push_str(&format!("{}: db \"{}\", 0\n", label, escaped));
+                                    emit_nasm_string(&label, text, data_section);
                                     args_code.push_str(&format!("    lea {}, [rel {}]\n", reg, label));
                                 }
                                 _ => {}
                             }
                         }
                     }
-                    
+
                     text_section.push_str(&args_code);
                     text_section.push_str(&format!("    call {}\n", method_label));
                 } else {
@@ -1429,11 +1472,10 @@ fn compile_block_with_loop_context(
                          if let Ok(val) = eval_expr(arg_pair, &symbols.variables) {
                              match val {
                                  FluxValue::Int(n) => text_section.push_str(&format!("    mov {}, {}\n", reg, n)),
-                                 FluxValue::Str(text) => {
+                                 FluxValue::Str(ref text) => {
                                     let label = format!("str_{}", *unique_id);
                                     *unique_id += 1;
-                                    let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
-                                    data_section.push_str(&format!("{}: db \"{}\", 0\n", label, escaped));
+                                    emit_nasm_string(&label, text, data_section);
                                     text_section.push_str(&format!("    lea {}, [rel {}]\n", reg, label));
                                  }
                                  _ => {}
@@ -1620,10 +1662,10 @@ fn compile_block_with_loop_context(
                                     label, offset
                                 ));
                             }
-                            FluxValue::Str(_) => {
+                            FluxValue::Str(ref s) => {
                                 let label = format!("str_{}", *unique_id);
                                 *unique_id += 1;
-                                data_section.push_str(&format!("{}: db \"{}\", 0\n", label, val));
+                                emit_nasm_string(&label, s, data_section);
                                 text_section.push_str(&format!(
                                     "    lea rax, [rel {}]\n    mov [rbp-{}], rax\n",
                                     label, offset
@@ -1882,9 +1924,9 @@ fn compile_block_with_loop_context(
                                 data_section.push_str(&format!("{}: dq 0x{:x}\n", label, bits));
                                 text_section.push_str(&format!("    mov rax, [rel {}]\n", label));
                             }
-                            FluxValue::Str(s) => {
+                            FluxValue::Str(ref s) => {
                                 let label = format!("str_{}", *unique_id); *unique_id += 1;
-                                data_section.push_str(&format!("{}: db \"{}\", 0\n", label, s));
+                                emit_nasm_string(&label, s, data_section);
                                 text_section.push_str(&format!("    lea rax, [rel {}]\n", label));
                             }
                         }
@@ -2072,8 +2114,12 @@ fn emit_nasm_string(label: &str, content: &str, data_section: &mut String) {
     }
 }
 
-/// Safe function label generator - avoids NASM mnemonic collisions
-/// User-defined functions that conflict with NASM mnemonics get prefixed with _usr_
+/// Safe function label generator.
+///
+/// Sanitises `name` so that it is a legal NASM label:
+/// - Replaces every character outside `[a-zA-Z0-9_]` with `_`.
+/// - Prepends `_` if the first character is a digit.
+/// - Prefixes with `_usr_` when the result collides with a NASM mnemonic.
 fn safe_func_label(name: &str) -> String {
     const NASM_RESERVED: &[&str] = &[
         "add", "sub", "mul", "div", "and", "or", "not", "xor",
@@ -2082,11 +2128,26 @@ fn safe_func_label(name: &str) -> String {
         "lea", "je", "jne", "jl", "jg", "jle", "jge",
         "sys", "db", "dq", "resq", "section", "global", "extern",
     ];
-    
-    if NASM_RESERVED.contains(&name) {
-        format!("_usr_{}", name)
+
+    // Replace every character that is not [a-zA-Z0-9_] with '_'
+    let mut sanitized: String = name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .collect();
+
+    // NASM labels may not start with a digit
+    if sanitized.starts_with(|c: char| c.is_ascii_digit()) {
+        sanitized.insert(0, '_');
+    }
+
+    if sanitized.is_empty() {
+        sanitized = "_unknown".to_string();
+    }
+
+    if NASM_RESERVED.contains(&sanitized.as_str()) {
+        format!("_usr_{}", sanitized)
     } else {
-        name.to_string()
+        sanitized
     }
 }
 
