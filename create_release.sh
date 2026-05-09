@@ -8,7 +8,7 @@ set -e
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RELEASE_DIR="$PROJECT_DIR/release_package"
-VERSION="1.0.1"
+VERSION="1.0.4-beta"
 BUILD_DATE=$(date +%Y%m%d)
 
 echo "📦 FluxSharp Release Packager v$VERSION"
