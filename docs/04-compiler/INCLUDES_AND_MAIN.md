@@ -1,4 +1,4 @@
-# FluxSharp Compiler - Main Class Validation & Include System
+# FluxSharp Compiler - Main Class Validation & Import System
 
 ## Overview
 
@@ -13,10 +13,9 @@ Every program must have:
 #### Required Format:
 ```fsh
 public class Main {
-public void main() {
-print("Hello, World!");
-
-` ... }
+    public void main() {
+        print("Hello, World!");
+    }
 }
 ```
 
@@ -26,42 +25,45 @@ print("Hello, World!");
 - ❌ **MISSING MAIN METHOD**: No main() method in the Main class
 - ❌ **MULTIPLE MAIN METHODS**: Multiple main() methods declared
 
-### 2. **Include System for External .fsh Files**
+### 2. **Import System for External .fsh Files**
 
-You can now include external `.fsh` files using:
+You can import external `.fsh` files using one of two equivalent syntaxes:
 
+#### Option 1: Using Directive (Recommended - C# Style)
 ```fsh
-// #include "filename.fsh"
-
+using "examples/math_helper.fsh";
 ```
 
-#### Inclusion Rules:
+#### Option 2: Import Directive (Alternative - C# Style)
+```fsh
+import "examples/math_helper.fsh";
+```
+
+#### Import Rules:
 
 1. **Only `.fsh` files** are allowed
-2. Inclusions are processed **recursively** (an included file can include other files)
-3. **Protection against circular inclusions** Automatic
-4. The files must be in the **same directory** or in subdirectories (relative paths)
+2. Imports are processed **recursively** (an imported file can import other files)
+3. **Protection against circular imports** - Automatic detection
+4. The files can use **relative paths** from the importing file location
 
-#### Example:
+#### Example (Using Imports):
 ```fsh
-// #include "helper.fsh"
-
-// #include "math_utils.fsh"
+using "examples/math_helper.fsh";
+using "examples/string_utils.fsh";
 
 public class Main {
-
-public void main() {
-
-print("Program with includes");
-
-}
+    public void main() {
+        print("Program with imports");
+        MathHelper helper = new MathHelper();
+        int result = helper.GetDouble(21);
+    }
 }
 ```
 
-#### Inclusion Errors:
-- ❌ **INVALID INCLUDE FILE**: The file does not have the `.fsh` extension
-- ❌ **INCLUDE FILE NOT FOUND**: The specified file does not exist
-- ❌ **CIRCULAR INCLUDE**: A circular include was detected
+#### Import Errors:
+- ❌ **INVALID IMPORT FILE**: The file does not have the `.fsh` extension
+- ❌ **IMPORT FILE NOT FOUND**: The specified file does not exist
+- ❌ **CIRCULAR IMPORT**: A circular import was detected
 
 ### 3. **Compilation Workflow**
 
@@ -80,7 +82,7 @@ cargo run --release -- compile main.fsh -o program --run
 
 - ✅ Path validation (no path traversal)
 - ✅ File size limit (50 MB max)
-- ✅ Circular inclusion protection
+- ✅ Circular import protection
 - ✅ Validation of generated ASM size (100 MB max)
 - ✅ Declaration limit (10,000 max per block)
 - ✅ Expression depth limit (100 max)
@@ -89,29 +91,40 @@ cargo run --release -- compile main.fsh -o program --run
 
 ```
 project/
-├── main.fsh # Main file with the Main class
-├── helper.fsh # Helper file (optional)
-├── utils.fsh # Utility file (optional)
+├── main.fsh                    # Main file with the Main class
+├── examples/
+│   ├── math_helper.fsh         # Helper file
+│   ├── string_utils.fsh        # String utilities
+│   └── utils.fsh               # General utilities
 └── subdir/
-
-└── database.fsh # Inclusion supported
+    └── database.fsh            # Database utilities
 ```
 
-### main.fsh:
+### main.fsh (Modern Syntax):
 ```fsh
-// #include "helper.fsh"
+using "examples/math_helper.fsh";
+using "examples/string_utils.fsh";
+using "subdir/database.fsh";
 
-// #include "subdir/database.fsh"
+public class Calculator {
+    public int Add(int a, int b) {
+        return a + b;
+    }
+}
 
 public class Main {
-
-public void main() {
-
-print("Program started");
-
-/ Use the classes defined in helper.fsh
-
-}
+    public void main() {
+        print("Program started");
+        
+        // Use imported classes
+        MathHelper helper = new MathHelper();
+        int doubled = helper.GetDouble(21);
+        
+        StringUtils strings = new StringUtils();
+        Database db = new Database();
+        
+        print("All systems operational");
+    }
 }
 ```
 
@@ -142,17 +155,38 @@ Checks that the compiled code contains:
 - Exactly one `class Main` declaration
 - Exactly one `void main()` declaration
 
-### process_includes()
-Processes include directives (`// #include "..."`) before compilation:
-1. Scans lines for include directives
-2. Validates that it is a `.fsh` file
-3. Loads and validates the external file
-4. Processes nested includes
-5. Combines the contents for compilation
+### process_includes_internal()
+Processes import directives before compilation in this order:
+1. **Recognizes two formats:**
+   - `using "filename.fsh";` (C# style - recommended)
+   - `import "filename.fsh";` (C# style - alternative)
+
+2. **For each import:**
+   - Validates that it is a `.fsh` file
+   - Loads and validates the external file
+   - Checks for circular imports
+   - Processes nested imports recursively
+   - Combines the contents for compilation
+
+3. **Security checks:**
+   - File path validation (no path traversal)
+   - Circular import detection
+   - File size validation
 
 ## Notes
 
-- Include comments must be in the format: `// #include "filename.fsh"`
-- Includes are processed in the order they appear
-- Included files must have a valid class structure
-- An included file must not contain a `Main` class (otherwise, a multiple Main class error will occur)
+- **Recommended:** Use `using` directive as it is the standard C# style
+- **Alternative:** `import` directive also works and is fully supported
+- Imports are processed in the order they appear
+- Imported files must have valid class structure (no duplicate Main class)
+- An imported file should not contain a `Main` class (otherwise, multiple Main class error will occur)
+- Use **relative paths** from the importing file's directory
+
+## Supported Import Formats
+
+| Format | Status | Recommended |
+|--------|--------|-------------|
+| `using "file.fsh";` | ✅ Supported | Yes (Primary) |
+| `import "file.fsh";` | ✅ Supported | Yes (Alternative) |
+
+Both formats are fully supported and produce identical results during compilation.

@@ -361,6 +361,106 @@ public struct PackedStruct {
 }
 ```
 
+## Using Classes from External Files
+
+You can organize your code by defining classes in separate files and importing them using the `using` directive.
+
+### File Structure Example
+
+```
+project/
+├── main.fsh
+└── examples/
+    └── math_helper.fsh
+```
+
+### Defining a Class in Another File
+
+**File: `examples/math_helper.fsh`**
+```flux
+public class MathHelper {
+    public int GetDouble(int x) {
+        return x * 2;
+    }
+    
+    public int GetTriple(int x) {
+        return x * 3;
+    }
+}
+```
+
+### Importing and Using External Classes
+
+**File: `main.fsh`**
+```flux
+using "examples/math_helper.fsh";
+
+public class Main {
+    public void main() {
+        // Create instance of imported class
+        MathHelper helper = new MathHelper();
+        
+        // Use methods from imported class
+        int double21 = helper.GetDouble(21);
+        int triple7 = helper.GetTriple(7);
+        
+        print("GetDouble(21) = ");
+        print(double21);
+        
+        print("GetTriple(7) = ");
+        print(triple7);
+    }
+}
+```
+
+### Import Syntax Options
+
+FluxSharp supports multiple import syntaxes for flexibility:
+
+#### Using Directive (Recommended)
+```flux
+using "examples/math_helper.fsh";
+```
+
+#### Import Directive (Alternative)
+```flux
+import "examples/math_helper.fsh";
+```
+
+#### Legacy Format (Still Supported)
+```flux
+// #include "examples/math_helper.fsh"
+```
+
+**Note:** All three formats are equivalent and work identically.
+
+### Multiple Imports
+
+You can import multiple files in the same source:
+
+```flux
+using "examples/math_helper.fsh";
+using "examples/string_utils.fsh";
+using "examples/utils.fsh";
+
+public class Main {
+    public void main() {
+        MathHelper math = new MathHelper();
+        StringUtils strings = new StringUtils();
+        
+        // Use both imported classes
+    }
+}
+```
+
+### Best Practices
+
+1. **Organize by feature:** Place related classes in the same file
+2. **Use descriptive names:** `math_helper.fsh`, `string_utils.fsh`
+3. **Group imports:** Put all `using` statements at the top of your file
+4. **One class per file:** For large classes, consider creating separate files
+5. **Path references:** Use relative paths from the main file location
+
 ---
 
 Next: Read [CONTROL_FLOW.md](CONTROL_FLOW.md)

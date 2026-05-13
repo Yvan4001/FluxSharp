@@ -197,7 +197,124 @@ Looked in: "examples/nonexistent_file.fsh"
 
 ---
 
-## 7. Error Messages (Updated)
+## 7. Using Imported Classes in Your Code
+
+Once you've imported a class from another file, you can use it just like any other class in your program.
+
+### Creating Instances of Imported Classes
+
+After importing a class, create instances using the `new` keyword:
+
+```csharp
+using "examples/math_helper.fsh";
+
+public class Main {
+    public void main() {
+        // Create instance of imported MathHelper class
+        MathHelper helper = new MathHelper();
+        
+        // Use methods from the imported class
+        int doubled = helper.GetDouble(21);
+        int tripled = helper.GetTriple(7);
+    }
+}
+```
+
+### Working with Multiple Imported Classes
+
+You can import and use multiple classes in the same file:
+
+```csharp
+using "examples/math_helper.fsh";
+using "examples/string_utils.fsh";
+using "examples/utils.fsh";
+
+public class Main {
+    public void main() {
+        // Create instances of all imported classes
+        MathHelper math = new MathHelper();
+        StringUtils strings = new StringUtils();
+        Utils utilities = new Utils();
+        
+        // Use methods from all imported classes
+        int result = math.GetDouble(10);
+        string text = strings.ProcessString("hello");
+    }
+}
+```
+
+### Passing Imported Classes as Parameters
+
+You can pass instances of imported classes as method parameters:
+
+```csharp
+using "examples/math_helper.fsh";
+
+public class Calculator {
+    public int ProcessWithHelper(MathHelper helper, int value) {
+        return helper.GetDouble(value);
+    }
+}
+
+public class Main {
+    public void main() {
+        MathHelper helper = new MathHelper();
+        Calculator calc = new Calculator();
+        int result = calc.ProcessWithHelper(helper, 15);
+    }
+}
+```
+
+### Real-World Example: Full Integration
+
+**`examples/math_helper.fsh`**
+```csharp
+public class MathHelper {
+    public int GetDouble(int x) {
+        return x * 2;
+    }
+    
+    public int GetTriple(int x) {
+        return x * 3;
+    }
+}
+```
+
+**`main.fsh`**
+```csharp
+using "examples/math_helper.fsh";
+
+public class Calculator {
+    public int Add(int a, int b) {
+        return a + b;
+    }
+    
+    public int Multiply(int a, int b) {
+        return a * b;
+    }
+}
+
+public class Main {
+    public void main() {
+        // Import and use external class
+        MathHelper helper = new MathHelper();
+        
+        // Use local class
+        Calculator calc = new Calculator();
+        
+        // Combine both
+        int doubled = helper.GetDouble(21);
+        int sum = calc.Add(doubled, 5);
+        
+        print("Result: ");
+        print(sum);
+    }
+}
+```
+
+---
+
+## 8. Error Messages (Updated)
 
 ### Import File Not Found
 ```

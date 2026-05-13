@@ -16,7 +16,7 @@ Welcome to FluxSharp documentation! This folder is organized by category for eas
 - `VARIABLES.md` - Variables and declaration
 - `OPERATORS.md` - All operators
 - `FUNCTIONS.md` - Function definition and calls
-- `CLASSES.md` - Object-oriented programming
+- `CLASSES.md` - Object-oriented programming (including **using external classes**)
 - `ARRAYS.md` - Array handling
 - `BOUNDS_CHECKING.md` - **⭐ NEW** - Automatic array bounds validation
 - `CONTROL_FLOW.md` - If/else, loops, conditions
@@ -67,6 +67,7 @@ Welcome to FluxSharp documentation! This folder is organized by category for eas
 - **Understand types** → Read `02-language/TYPES.md`
 - **Define functions** → Read `02-language/FUNCTIONS.md`
 - **Use classes** → Read `02-language/CLASSES.md`
+- **📌 Use classes from other files** → Read `02-language/CLASSES.md` → "Using Classes from External Files" section
 - **Work with arrays** → Read `02-language/ARRAYS.md`
 - **⭐ Bounds checking** → Read `02-language/BOUNDS_CHECKING.md` (Array safety!)
 - **Fix errors** → Read `04-compiler/ERROR_GUIDE.md`
