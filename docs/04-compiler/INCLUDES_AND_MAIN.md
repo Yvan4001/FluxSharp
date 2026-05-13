@@ -2,142 +2,157 @@
 
 ## Overview
 
-Le compilateur FluxSharp (fluxc) applique maintenant les vérifications suivantes:
+The FluxSharp compiler (fluxc) now applies the following checks:
 
 ### 1. **Main Class & Method Validation**
 
-Chaque programme doit avoir:
-- ✅ Exactement **UNE classe Main**
-- ✅ Exactement **UNE méthode main()** dans cette classe
+Every program must have:
+- ✅ Exactly **ONE Main class**
+- ✅ Exactly **ONE main() method** in that class
 
-#### Format Requis:
+#### Required Format:
 ```fsh
 public class Main {
-    public void main() {
-        print("Hello, World!");
-    }
+public void main() {
+print("Hello, World!");
+
+` ... }
 }
 ```
 
-#### Erreurs Détectées:
-- ❌ **MISSING MAIN CLASS**: Aucune classe Main trouvée
-- ❌ **MULTIPLE MAIN CLASSES**: Plusieurs classes Main déclarées
-- ❌ **MISSING MAIN METHOD**: Pas de méthode main() dans la classe Main
-- ❌ **MULTIPLE MAIN METHODS**: Plusieurs méthodes main() déclarées
+#### Errors Detected:
+- ❌ **MISSING MAIN CLASS**: No Main class found
+- ❌ **MULTIPLE MAIN CLASSES**: Multiple Main classes declared
+- ❌ **MISSING MAIN METHOD**: No main() method in the Main class
+- ❌ **MULTIPLE MAIN METHODS**: Multiple main() methods declared
 
 ### 2. **Include System for External .fsh Files**
 
-Vous pouvez maintenant inclure des fichiers `.fsh` externes en utilisant:
+You can now include external `.fsh` files using:
 
 ```fsh
 // #include "filename.fsh"
+
 ```
 
-#### Règles d'Inclusion:
-1. **Seuls les fichiers `.fsh`** sont autorisés
-2. Les inclusions sont traitées **récursivement** (un fichier inclus peut inclure d'autres fichiers)
-3. **Protection contre les inclusions circulaires** automatique
-4. Les fichiers doivent être dans le **même répertoire** ou dans les sous-répertoires (chemins relatifs)
+#### Inclusion Rules:
 
-#### Exemple:
+1. **Only `.fsh` files** are allowed
+2. Inclusions are processed **recursively** (an included file can include other files)
+3. **Protection against circular inclusions** Automatic
+4. The files must be in the **same directory** or in subdirectories (relative paths)
+
+#### Example:
 ```fsh
 // #include "helper.fsh"
+
 // #include "math_utils.fsh"
 
 public class Main {
-    public void main() {
-        print("Program with includes");
-    }
+
+public void main() {
+
+print("Program with includes");
+
+}
 }
 ```
 
-#### Erreurs d'Inclusion:
-- ❌ **INVALID INCLUDE FILE**: Le fichier n'a pas l'extension `.fsh`
-- ❌ **INCLUDE FILE NOT FOUND**: Le fichier spécifié n'existe pas
-- ❌ **CIRCULAR INCLUDE**: Une inclusion circulaire a été détectée
+#### Inclusion Errors:
+- ❌ **INVALID INCLUDE FILE**: The file does not have the `.fsh` extension
+- ❌ **INCLUDE FILE NOT FOUND**: The specified file does not exist
+- ❌ **CIRCULAR INCLUDE**: A circular include was detected
 
 ### 3. **Compilation Workflow**
 
 ```bash
-# Compiler un fichier unique
+# Compile a single file
 cargo run --release -- compile main.fsh -o program
 
-# Compiler tous les fichiers .fsh d'un répertoire
+# Compile all .fsh files in a directory
 cargo run --release -- compile --all ./examples -o program
 
-# Compiler et exécuter
+# Compile and run
 cargo run --release -- compile main.fsh -o program --run
 ```
 
 ### 4. **Security Features**
 
-- ✅ Validation des chemins d'accès (pas de path traversal)
-- ✅ Limite de taille de fichier (50 MB max)
-- ✅ Protection contre les inclusions circulaires
-- ✅ Validation de la taille d'ASM générée (100 MB max)
-- ✅ Limite de nombre de déclarations (10 000 max par bloc)
-- ✅ Limite de profondeur d'expression (100 max)
+- ✅ Path validation (no path traversal)
+- ✅ File size limit (50 MB max)
+- ✅ Circular inclusion protection
+- ✅ Validation of generated ASM size (100 MB max)
+- ✅ Declaration limit (10,000 max per block)
+- ✅ Expression depth limit (100 max)
 
 ## Example Project Structure
 
 ```
 project/
-├── main.fsh                 # Fichier principal avec la classe Main
-├── helper.fsh              # Fichier helper (optionnel)
-├── utils.fsh               # Fichier utilitaire (optionnel)
+├── main.fsh # Main file with the Main class
+├── helper.fsh # Helper file (optional)
+├── utils.fsh # Utility file (optional)
 └── subdir/
-    └── database.fsh        # Inclusion supportée
+
+└── database.fsh # Inclusion supported
 ```
 
 ### main.fsh:
 ```fsh
 // #include "helper.fsh"
+
 // #include "subdir/database.fsh"
 
 public class Main {
-    public void main() {
-        print("Program started");
-        // Utiliser les classes définies dans helper.fsh
-    }
+
+public void main() {
+
+print("Program started");
+
+/ Use the classes defined in helper.fsh
+
+}
 }
 ```
 
 ## Error Messages
 
-Le compilateur fournit des messages d'erreur clairs:
+The compiler provides clear error messages:
 
 ```
 ❌ MISSING MAIN CLASS
 
-Your program must have exactly one 'class Main' with a 'void main()' method.
+Your program must have exactly one 'Main' class with a 'void main()' method.
 
 Example:
 public class Main {
-    public void main() {
-        print("Hello, World!");
-    }
+
+public void main() {
+
+print("Hello, World!");
+
+}
 }
 ```
 
 ## Implementation Details
 
 ### validate_main_class()
-Vérifie que le code compilé contient:
-- Exactement une déclaration `class Main`
-- Exactement une déclaration `void main()`
+Checks that the compiled code contains:
+- Exactly one `class Main` declaration
+- Exactly one `void main()` declaration
 
 ### process_includes()
-Traite les directives d'inclusion (`// #include "..."`) avant la compilation:
-1. Scanne les lignes pour les directives d'inclusion
-2. Valide que c'est un fichier `.fsh`
-3. Charge et valide le fichier externe
-4. Traite les inclusions imbriquées
-5. Combine le contenu pour la compilation
+Processes include directives (`// #include "..."`) before compilation:
+1. Scans lines for include directives
+2. Validates that it is a `.fsh` file
+3. Loads and validates the external file
+4. Processes nested includes
+5. Combines the contents for compilation
 
 ## Notes
 
-- Les commentaires d'inclusion doivent être au format: `// #include "filename.fsh"`
-- Les inclusions sont traitées dans l'ordre d'apparition
-- Les fichiers inclus doivent avoir une structure de classe valide
-- Un fichier inclus ne doit pas contenir de classe `Main` (sinon erreur de classe Main multiple)
-
+- Include comments must be in the format: `// #include "filename.fsh"`
+- Includes are processed in the order they appear
+- Included files must have a valid class structure
+- An included file must not contain a `Main` class (otherwise, a multiple Main class error will occur)
